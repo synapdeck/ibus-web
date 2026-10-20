@@ -5,16 +5,16 @@
 // host's one message in, and every message out.
 
 import type { TransportLayout } from "@ibus-web/protocol/transport";
-import type { ModuleManifest } from "@ibus-web/protocol";
+import type { ModuleManifest, WasmModuleManifest } from "@ibus-web/protocol";
 export interface RuntimeMemory {
   initial: number;
   maximum: number;
 }
 
 // The engine's data's size, unpacked, and its entries' count.
-const engineDataBytes = ({ data }: Pick<ModuleManifest, "data">): number =>
+const engineDataBytes = ({ data }: Pick<WasmModuleManifest, "data">): number =>
   data.reduce((sum, { size }) => sum + size, 0);
-const engineDataEntries = ({ data }: Pick<ModuleManifest, "data">): number =>
+const engineDataEntries = ({ data }: Pick<WasmModuleManifest, "data">): number =>
   data.reduce((sum, { files }) => sum + files, 0);
 
 // The page size of WebAssembly memory, in bytes.
@@ -26,7 +26,7 @@ export const WASM_PAGE = 65536;
 // whole pages.
 export const memoryWithData = (
   { initial, maximum }: { initial: number; maximum: number },
-  engine: Pick<ModuleManifest, "data">,
+  engine: Pick<WasmModuleManifest, "data">,
   fileBytes: number,
 ): { initial: number; maximum: number } => {
   const data = Math.ceil((engineDataBytes(engine) + engineDataEntries(engine) * fileBytes) / WASM_PAGE) * WASM_PAGE;
@@ -191,7 +191,13 @@ export interface CollectReport {
 // refuses with "writer" when another host holds the module's writer lock,
 // and with "ephemeral" when its storage would be in memory and so kept
 // nothing.
-export type StartupRefusal = "RuntimeAbiMismatch" | "ProtocolMismatch" | "manifest" | "writer" | "ephemeral";
+export type StartupRefusal =
+  | "RuntimeAbiMismatch"
+  | "ModuleAbiMismatch"
+  | "ProtocolMismatch"
+  | "manifest"
+  | "writer"
+  | "ephemeral";
 
 export type HostMessage =
   | { type: "doorbell" }

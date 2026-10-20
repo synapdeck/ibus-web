@@ -5,7 +5,6 @@ import { Context, Effect, Layer } from "effect";
 import { WASM_PAGE } from "../../shared/messages.ts";
 import { runtimeCallFailed, startupFailed, type StartupFailed } from "../failure.ts";
 import { Instruments } from "../instruments.ts";
-import type { LoopContext } from "../loop.ts";
 import {
   alloc,
   check,
@@ -21,12 +20,12 @@ import { HostWorker } from "./worker.ts";
 // The runtime scope: the runtime, started in a memory the host makes at the
 // engine's size, and set up to pump on this thread. Nothing to release: the
 // runtime ends with the Worker.
-interface HostRuntimeShape {
+export interface HostRuntimeShape {
   readonly handle: RuntimeHandle;
   readonly wakeIndex: number;
   // Where requests and replies sit in the runtime's memory, each the
   // control slot's size.
-  readonly buffers: LoopContext["buffers"];
+  readonly buffers: { readonly request: number; readonly reply: number; readonly cap: number };
 }
 
 export class HostRuntime extends Context.Service<HostRuntime, HostRuntimeShape>()(

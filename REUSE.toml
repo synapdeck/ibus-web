@@ -181,6 +181,12 @@ SPDX-License-Identifier = "MIT-open-group AND HPND"
 precedence = "override"
 
 [[annotations]]
+path = "packages/protocol/src/keyval-unicode.generated.ts"
+SPDX-FileCopyrightText = ["1987, 1994, 1998 The Open Group", "1987 Digital Equipment Corporation"]
+SPDX-License-Identifier = "MIT-open-group AND HPND"
+precedence = "override"
+
+[[annotations]]
 path = "packages/core/src/keys/dom-codes.generated.ts"
 SPDX-FileCopyrightText = "2013 The Chromium Authors"
 SPDX-License-Identifier = "BSD-3-Clause"

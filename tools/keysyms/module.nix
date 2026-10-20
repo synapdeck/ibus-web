@@ -92,6 +92,53 @@
             | ${pkgs.oxfmt}/bin/oxfmt -c ${../../.oxfmtrc.jsonc} --stdin-filepath ${fileName} > $out
         '';
 
+      # The generator alone, since it imports only its parser.
+      keyvalUnicodeGenerator = lib.fileset.toSource {
+        root = ./.;
+        fileset = lib.fileset.unions [
+          ./keysymdef.ts
+          ./keyval-unicode.ts
+        ];
+      };
+
+      keyvalUnicode =
+        generate "keyval-unicode.generated.ts" "${keyvalUnicodeGenerator}/keyval-unicode.ts"
+          keysymdef;
+
+      # ibus_keyval_to_unicode() for every keyval below the Unicode keysyms and
+      # for those around their bounds, as "<keyval> <code point>" in hex.
+      ibusKeyvals =
+        pkgs.runCommand "ibus-web-ibus-keyvals.txt"
+          {
+            nativeBuildInputs = [
+              pkgs.stdenv.cc
+              pkgs.pkg-config
+            ];
+            buildInputs = [ pkgs.ibus ];
+          }
+          ''
+            cat > dump.c <<'EOF'
+            #include <ibus.h>
+            #include <stdio.h>
+
+            static void dump(guint first, guint last) {
+              for (guint keyval = first; keyval <= last; keyval++)
+                printf("%x %x\n", keyval, ibus_keyval_to_unicode(keyval));
+            }
+
+            int main(void) {
+              dump(0, 0xffff);
+              dump(0x1000000, 0x1000400);
+              dump(0x100d700, 0x100e100);
+              dump(0x110fff0, 0x1110010);
+              dump(0x1ffffff, 0x1ffffff);
+              return 0;
+            }
+            EOF
+            cc -Wall -Wextra -Werror dump.c $(pkg-config --cflags --libs ibus-1.0) -o dump
+            ./dump > $out
+          '';
+
       # The generators' inputs, which the dev shell and the generators' tests read.
       sourcesEnv = {
         IBUS_WEB_CHROMIUM_LICENSE = chromiumLicense;
@@ -105,6 +152,8 @@
       files.file."packages/core/src/keys/keysyms.generated.ts".source =
         generate "keysyms.generated.ts" ./keysymdef.ts
           keysymdef;
+
+      files.file."packages/protocol/src/keyval-unicode.generated.ts".source = keyvalUnicode;
 
       files.file."packages/core/src/keys/dom-codes.generated.ts".source =
         generate "dom-codes.generated.ts" ./dom-codes.ts
@@ -143,12 +192,23 @@
 
       devshells.default.env = lib.mapAttrsToList (name: value: { inherit name value; }) sourcesEnv;
 
-      checks.tools-keysyms = testing.vitestCheck {
-        name = "tools-keysyms";
-        packageDir = "${keysymsWorkspace}/tools/keysyms";
-        limit = 120;
-        inBrowsers = false;
-        env = sourcesEnv;
+      checks = {
+        tools-keysyms = testing.vitestCheck {
+          name = "tools-keysyms";
+          packageDir = "${keysymsWorkspace}/tools/keysyms";
+          limit = 120;
+          inBrowsers = false;
+          env = sourcesEnv;
+        };
+      }
+      # libibus builds only where IBus runs.
+      // lib.optionalAttrs (lib.meta.availableOn pkgs.stdenv.hostPlatform pkgs.ibus) {
+        tools-keysyms-ibus = pkgs.runCommand "ibus-web-tools-keysyms-ibus" { } ''
+          cp ${keyvalUnicode} table.mts
+          cp ${./ibus-parity.ts} parity.mts
+          ${typescript.nodejs}/bin/node parity.mts ./table.mts ${ibusKeyvals}
+          touch $out
+        '';
       };
     };
 }

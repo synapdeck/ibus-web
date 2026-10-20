@@ -58,8 +58,9 @@ the tracked copy differs.
 - `pnpm-workspace.yaml`, from `modules/typescript/files.nix`
 - `packages/protocol/PROTOCOL.md` and `runtime/libibus-web/include/ibus-web/protocol.h`, from
   `packages/protocol/module.nix` and the protocol's schemas
-- `packages/core/src/keys/*.generated.ts`, `runtime/libibus-web/src/ibus/us-keymap.generated.h`, `NOTICES/*.txt` and
-  `LICENSES/LicenseRef-xkeyboard-config.txt`, from `tools/keysyms/module.nix`
+- `packages/core/src/keys/*.generated.ts`, `packages/protocol/src/keyval-unicode.generated.ts`,
+  `runtime/libibus-web/src/ibus/us-keymap.generated.h`, `NOTICES/*.txt` and `LICENSES/LicenseRef-xkeyboard-config.txt`,
+  from `tools/keysyms/module.nix`
 
 `pnpm-lock.yaml` is written by `pnpm install`. When it changes, the `pnpmDeps` hash in
 `modules/typescript/workspace.nix` usually does too: take the new value from the build's mismatch error.

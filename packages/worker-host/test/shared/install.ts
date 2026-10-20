@@ -7,7 +7,7 @@
 
 import { expect } from "vitest";
 import { INSTALL_PIECE } from "../../src/shared/config.ts";
-import type { ModuleManifest } from "@ibus-web/protocol";
+import type { WasmModuleManifest } from "@ibus-web/protocol";
 import type { CollectReport, InstallReport } from "../../src/shared/messages.ts";
 import {
   encodeComponent,
@@ -64,7 +64,7 @@ const expectInstall = (
 };
 
 // The engine's installed tree as the host sees it, listed by list-tree.
-export const treeOf = async (h: Harness, client: Client, engine: ModuleManifest): Promise<string | number> => {
+export const treeOf = async (h: Harness, client: Client, engine: WasmModuleManifest): Promise<string | number> => {
   const reply = replyFile(await client.call(opsOf(h).listTree, encoder.encode(engineDataDir(engine, engine.data[0]!))));
   return reply.text ?? reply.status;
 };
@@ -72,7 +72,7 @@ export const treeOf = async (h: Harness, client: Client, engine: ModuleManifest)
 const expectTree = async (
   h: Harness,
   client: Client,
-  engine: ModuleManifest,
+  engine: WasmModuleManifest,
   archive: TestArchive,
   what = "the installed tree",
 ): Promise<void> => {
@@ -80,13 +80,14 @@ const expectTree = async (
 };
 
 // The engine's next version, whose data is the upgrade archive.
-const upgradeOf = (h: Harness, engine: ModuleManifest): ModuleManifest => withData(engine, h.data.archives.upgrade);
+const upgradeOf = (h: Harness, engine: WasmModuleManifest): WasmModuleManifest =>
+  withData(engine, h.data.archives.upgrade);
 
 // Runs the scenario, terminating every host it started once it is done.
 export const withHosts = async (
   h: Harness,
   runtime: RuntimeBuild,
-  run: (launch: (engine: ModuleManifest, more?: Partial<HostOptions>) => LaunchedHost) => Promise<void>,
+  run: (launch: (engine: WasmModuleManifest, more?: Partial<HostOptions>) => LaunchedHost) => Promise<void>,
 ): Promise<void> => {
   const started: LaunchedHost[] = [];
   try {
@@ -132,8 +133,8 @@ const stalled = (message: Message): message is { type: "stalled"; bytes: number 
 // end.
 const stalledHost = async (
   h: Harness,
-  launch: (engine: ModuleManifest, more?: Partial<HostOptions>) => LaunchedHost,
-  engine: ModuleManifest,
+  launch: (engine: WasmModuleManifest, more?: Partial<HostOptions>) => LaunchedHost,
+  engine: WasmModuleManifest,
   archive: TestArchive,
   silentInstallProgress = false,
 ): Promise<LaunchedHost> => {
@@ -251,7 +252,7 @@ export const installInterruptedStray = (h: Harness, runtime: RuntimeBuild): Prom
   withHosts(h, runtime, async (launch) => {
     const engine = engineFor(h, "install-interrupted-stray", runtime);
     const { upgrade } = h.data.archives;
-    const stray: ModuleManifest = {
+    const stray: WasmModuleManifest = {
       ...engine,
       data: engine.data.map((data, i) =>
         i === 0 ? { ...data, url: upgrade.url, size: upgrade.size, files: upgrade.files } : data,
@@ -390,7 +391,7 @@ export const staleFile = (h: Harness, runtime: RuntimeBuild): Promise<void> =>
   });
 
 // The locks a host of the engine may hold.
-const engineLocks = (engine: ModuleManifest): string[] => [
+const engineLocks = (engine: WasmModuleManifest): string[] => [
   engineInstallLock(engine),
   engineDataLock(engine, encodeComponent(engine.version)),
   engineWriterLock(engine),
@@ -403,7 +404,7 @@ const engineLocks = (engine: ModuleManifest): string[] => [
 export const failedInstallReleasesLocks = (h: Harness, runtime: RuntimeBuild): Promise<void> =>
   withHosts(h, runtime, async (launch) => {
     const engine = engineFor(h, "failed-start-releases-locks", runtime);
-    const broken: ModuleManifest = {
+    const broken: WasmModuleManifest = {
       ...engine,
       data: engine.data.map((data) => ({ ...data, url: h.data.archives.missing })),
     };
@@ -430,7 +431,7 @@ export const droppedArchiveRefetched = (h: Harness, runtime: RuntimeBuild): Prom
   withHosts(h, runtime, async (launch) => {
     const engine = engineFor(h, "dropped-archive-refetched", runtime);
     const url = `${h.data.archives.tree.url}?drop=${encodeURIComponent(engine.name)}`;
-    const dropping: ModuleManifest = {
+    const dropping: WasmModuleManifest = {
       ...engine,
       data: engine.data.map((data) => (data.url === h.data.archives.tree.url ? { ...data, url } : data)),
     };
@@ -593,7 +594,7 @@ export const waitFailsWithoutProgress = (h: Harness, runtime: RuntimeBuild): Pro
   });
 
 // Waits until the host holds the engine's install lock.
-const installing = async (h: Harness, engine: ModuleManifest, host: LaunchedHost): Promise<void> => {
+const installing = async (h: Harness, engine: WasmModuleManifest, host: LaunchedHost): Promise<void> => {
   const lock = engineInstallLock(engine);
   const deadline = h.now() + 30_000;
   while (await h.locks.free(lock)) {
@@ -605,7 +606,7 @@ const installing = async (h: Harness, engine: ModuleManifest, host: LaunchedHost
 
 // A host that mounts its storage in memory installs the engine's data at
 // every start, with no lock to wait for.
-export const installedInMemory = async (h: Harness, host: RunningHost, engine: ModuleManifest): Promise<void> => {
+export const installedInMemory = async (h: Harness, host: RunningHost, engine: WasmModuleManifest): Promise<void> => {
   expectInstall(h, host.messages, "installed", h.data.archives.tree);
   expect(installOf(host.messages)?.lockWaitMs, "the wait for a lock").toBe(0);
   expect(collectOf(host.messages), "a collect report").toBeUndefined();
@@ -708,7 +709,7 @@ export const rebuiltDistributionWhileRunning = (h: Harness, runtime: RuntimeBuil
     expect(oldEngine.version.split("+nix.")[0]).toBe(newEngine.version.split("+nix.")[0]);
     expect(oldEngine.settingsSchemaDir).not.toBe(newEngine.settingsSchemaDir);
     const old = await launch(oldEngine).ready;
-    const readSchema = async (host: RunningHost, engine: ModuleManifest) =>
+    const readSchema = async (host: RunningHost, engine: WasmModuleManifest) =>
       replyFile(await host.client.call(opsOf(h).listTree, encoder.encode(engine.settingsSchemaDir)));
     const oldSchema = await readSchema(old, oldEngine);
     expect(oldSchema.status).toBeGreaterThanOrEqual(0);

@@ -30,14 +30,25 @@ export type EngineDescriptor = typeof EngineDescriptor.Type;
 export const lazyStorePaths = (manifest: { readonly engines: readonly EngineDescriptor[] }): ReadonlySet<string> =>
   new Set(manifest.engines.flatMap((engine) => engine.data ?? []));
 
-export const ModuleManifest = Schema.Struct({
+const uniqueEngineNames = (manifest: { readonly engines: readonly EngineDescriptor[] }): string | undefined => {
+  const names = manifest.engines.map((engine) => engine.name);
+  return new Set(names).size === names.length ? undefined : "duplicate engine names";
+};
+
+// The module's descriptors in order; the first is the module's default.
+const engines = Schema.Array(EngineDescriptor).check(Schema.isNonEmpty());
+const asset = Schema.Struct({ url: nonEmpty, size: count });
+
+// A manifest without `kind` is a WebAssembly module.
+export const WasmModuleManifest = Schema.Struct({
+  kind: Schema.optionalKey(Schema.Literal("wasm")),
   name: moduleName,
   version: nonEmpty,
   license: nonEmpty,
   runtimeAbi: count,
   runtimeIdentity,
   protocol: count,
-  module: Schema.Struct({ url: nonEmpty, size: count }),
+  module: asset,
   memory: count.check(Schema.isMultipleOf(65536)),
   threads: count,
   data: Schema.Array(
@@ -52,14 +63,13 @@ export const ModuleManifest = Schema.Struct({
     }),
   ),
   settingsSchemaDir: Schema.String,
-  // The first engine is the module's default.
-  engines: Schema.Array(EngineDescriptor).check(Schema.isNonEmpty()),
+  engines,
   settingsSchemas: Schema.Array(Schema.String),
-  settingsMetadata: Schema.optionalKey(Schema.Struct({ url: nonEmpty, size: count })),
+  settingsMetadata: Schema.optionalKey(asset),
 }).check(
   Schema.makeFilter((manifest) => {
-    const names = manifest.engines.map((engine) => engine.name);
-    if (new Set(names).size !== names.length) return "duplicate engine names";
+    const duplicate = uniqueEngineNames(manifest);
+    if (duplicate !== undefined) return duplicate;
 
     const paths = manifest.data.map((entry) => entry.storePath);
     if (new Set(paths).size !== paths.length) return "duplicate data store paths";
@@ -83,6 +93,35 @@ export const ModuleManifest = Schema.Struct({
   }),
 );
 
+export type WasmModuleManifest = typeof WasmModuleManifest.Type;
+
+// A module written in JavaScript: one self-contained ES module script and no runtime, memory or data of its own.
+export const JsModuleManifest = Schema.Struct({
+  kind: Schema.Literal("js"),
+  name: moduleName,
+  version: nonEmpty,
+  license: nonEmpty,
+  protocol: count,
+  // The version of the contract between the host and the script's exports.
+  moduleAbi: count,
+  module: asset,
+  engines,
+  settingsSchemas: Schema.Array(Schema.String),
+  settingsMetadata: Schema.optionalKey(asset),
+}).check(
+  Schema.makeFilter((manifest) => {
+    const duplicate = uniqueEngineNames(manifest);
+    if (duplicate !== undefined) return duplicate;
+
+    const withData = manifest.engines.find((engine) => engine.data !== undefined);
+    return withData === undefined || `engine ${withData.name} names data, which a JavaScript module can't have`;
+  }),
+);
+
+export type JsModuleManifest = typeof JsModuleManifest.Type;
+
+export const ModuleManifest = Schema.Union([WasmModuleManifest, JsModuleManifest]);
+
 export type ModuleManifest = typeof ModuleManifest.Type;
 
 export const decodeModuleManifest = (
@@ -93,6 +132,7 @@ export const decodeModuleManifest = (
     ModuleManifest.check(
       Schema.makeFilter(
         (manifest) =>
+          manifest.kind === "js" ||
           (manifest.memory >= bounds.minimum && manifest.memory <= bounds.maximum) ||
           "memory is outside the runtime bounds",
       ),

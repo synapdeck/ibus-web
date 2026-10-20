@@ -1,0 +1,24 @@
+{
+  "kind": "js",
+  "name": "page-js",
+  "version": "1",
+  "license": "MIT",
+  "protocol": 1,
+  "moduleAbi": 1,
+  "module": { "url": "module.mjs", "size": 709 },
+  "engines": [
+    {
+      "name": "one",
+      "displayName": "One",
+      "languages": ["en"],
+      "keyboard": { "layout": "us", "passThrough": [] }
+    },
+    {
+      "name": "stall",
+      "displayName": "Stall",
+      "languages": ["en"],
+      "keyboard": { "layout": "us", "passThrough": [] }
+    }
+  ],
+  "settingsSchemas": []
+}

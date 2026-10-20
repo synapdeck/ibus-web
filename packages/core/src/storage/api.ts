@@ -105,6 +105,19 @@ const writerHeld = (name: string): Promise<boolean> =>
         .then(({ held = [] }) => held.some((lock) => lock.name === engineWriterLock({ name })))
         .catch(() => false);
 
+// A JavaScript module has no databases to read.
+const noUsage = (manifest: ModuleManifest): ModuleUsage => ({
+  data: 0,
+  userData: 0,
+  engines: Object.fromEntries(manifest.engines.map(({ name }) => [name, { data: 0 }])),
+  version: manifest.version,
+  versions: {},
+  total: 0,
+});
+
+// Two zero blocks: a tar with no entries.
+const emptyTar = (): Blob => new Blob([new Uint8Array(1024)], { type: "application/x-tar" });
+
 const usageOf = (manifest: ModuleManifest, { userData, base, paths, versions }: DatabaseUsage): ModuleUsage => ({
   data: Object.values(paths).reduce((sum, bytes) => sum + bytes, base),
   userData,
@@ -213,6 +226,8 @@ export class StorageApi extends Context.Service<StorageApi, StorageApiService>()
               const usages = yield* Effect.forEach(Object.keys(options.modules), (module) =>
                 Effect.gen(function* () {
                   const manifest = yield* manifestOf(module);
+                  if (manifest.kind === "js") return [module, noUsage(manifest)] as const;
+
                   const reply = yield* ask(module, { type: "usage", modules: [databasesOf(manifest)] });
                   if (reply.type !== "usage")
                     return yield* Effect.fail(new Error(`storage Worker answered ${reply.type}`));
@@ -224,6 +239,8 @@ export class StorageApi extends Context.Service<StorageApi, StorageApiService>()
           export: (module) =>
             Effect.gen(function* () {
               const manifest = yield* manifestOf(module);
+              if (manifest.kind === "js") return emptyTar();
+
               // What the engines keep only in memory, written first, so that the snapshot takes it in: by this tab's
               // Worker, or by another tab's that holds the writer lock.
               if (registry.writable(module))
@@ -240,7 +257,10 @@ export class StorageApi extends Context.Service<StorageApi, StorageApiService>()
           reset: (module) =>
             Effect.gen(function* () {
               const manifest = yield* manifestOf(module);
+              // Nothing is stored for a JavaScript module, so a reset only restarts it.
               const clear = Effect.gen(function* () {
+                if (manifest.kind === "js") return;
+
                 // A Worker the page just ended may keep the writer lock a while, and a module started meanwhile
                 // would run read-only.
                 yield* (options.waitForWriter ?? lockWait)(manifest.name).pipe(Effect.timeout(10_000), Effect.ignore);

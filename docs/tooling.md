@@ -25,9 +25,10 @@ What it provides:
 - **`write-files`**, which writes the generated files: the CI workflow ([CI](#ci)), `pnpm-workspace.yaml`
   ([the pnpm workspace](#the-pnpm-workspace)), libibus-web's `protocol.h` and `packages/protocol/PROTOCOL.md`, generated
   from the protocol's schemas ([protocol.md](protocol.md#generated-artifacts)), and the keysym tables in
-  `packages/core/src/keys/` (`*.generated.ts`), libibus-web's US keymap table (`us-keymap.generated.h`) and the
-  `NOTICES/` and `LICENSES/LicenseRef-xkeyboard-config.txt` texts that accompany their sources. `.generated-files` lists
-  them all; the writer deletes a file it listed once the Nix stops generating it.
+  `packages/core/src/keys/` (`*.generated.ts`) and `packages/protocol/src/keyval-unicode.generated.ts`, libibus-web's US
+  keymap table (`us-keymap.generated.h`) and the `NOTICES/` and `LICENSES/LicenseRef-xkeyboard-config.txt` texts that
+  accompany their sources. `.generated-files` lists them all; the writer deletes a file it listed once the Nix stops
+  generating it.
 
 Its startup builds and links, as git-ignored out-links that also root the store paths against garbage collection:
 

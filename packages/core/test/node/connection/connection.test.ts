@@ -115,6 +115,13 @@ describe("startup and shutdown", () => {
     expect(host.init).not.toHaveProperty("constants");
   });
 
+  test("a JavaScript module's start fetches and compiles no runtime", async () => {
+    await start({ kind: "js" });
+    expect(WebAssembly.compileStreaming).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(host.init).not.toHaveProperty("wasm");
+  });
+
   test("startup host error rejects and stops the worker", async () => {
     vi.spyOn(host, "postMessage").mockImplementation(() => host.message({ type: "error", message: "bad manifest" }));
     await expect(start()).rejects.toThrow("bad manifest");

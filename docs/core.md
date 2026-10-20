@@ -15,8 +15,9 @@ without page services. `effect` is a peer dependency; the host application provi
 Provide `Router.Default` with `ModuleRegistry.layer({ hostUrl, runtimeUrl, modules })`, then provide
 `CoreConfig.Default`, `SettingsSource.Default`, `Logger.Default` and `PanelEvents.Default`. Keys in `modules` name
 modules and map to their manifest URLs; they need not equal the manifest's name or any engine's name. `runtimeUrl` names
-`ibus-runtime.js`, with `.wasm` and `constants.json` beside it. Serve every response with COOP `same-origin` and COEP
-`require-corp` for cross-origin isolation.
+`ibus-runtime.js`, with `.wasm` and `constants.json` beside it; it is required even when every module is JavaScript,
+though a JavaScript module's start neither fetches nor compiles the runtime, its connection posting `HostInit` without
+`wasm`. Serve every response with COOP `same-origin` and COEP `require-corp` for cross-origin isolation.
 
 Acquire and use the services inside a live Effect scope. Closing the scope removes listeners and terminates Workers; do
 not return a router from an already-closed `Effect.scoped` program. The [demo](../examples/demo/src/main.ts) provides
@@ -40,9 +41,13 @@ the wait returns at once. A page's own `unload` or `dispose()` in WebKit, with s
 and loses it. The `beforeunload` listener is there only while a Worker runs, since Firefox keeps no page that has one in
 its back/forward cache.
 
-A module is one distribution: one manifest, one Worker. Its engines are the input methods inside it.
-`router.select(module, engine?)` selects an engine, the module's first when `engine` is left out, and
-`router.deselect()` returns every surface, overrides included, to native input while Workers stay loaded.
+A module is one distribution: one manifest, one Worker. Its engines are the input methods inside it. The manifest says
+whether the module is WebAssembly or JavaScript ([engines.md](engines.md#distribution-manifest)); the router and the
+registry treat both alike, and only the Worker host differs
+([worker-host.md](worker-host.md#the-program-and-its-scopes)). A JavaScript module has no data of its own and keeps
+nothing in IndexedDB, so its `prepare` needs no download and its storage calls ([storage.md](storage.md#the-host-api))
+have nothing to read. `router.select(module, engine?)` selects an engine, the module's first when `engine` is left out,
+and `router.deselect()` returns every surface, overrides included, to native input while Workers stay loaded.
 `router.override(adapter, { module, engine? })` sets a surface override, and `undefined` restores the page choice. All
 three return Effects, and an unknown module or engine fails them before anything changes. Naming an engine needs the
 module's manifest: a selection of a module whose manifest hasn't been read waits in the router's queue while
@@ -71,15 +76,23 @@ file two entries share counting for the first ([storage.md](storage.md#preloaded
 archives' unpacked ones: an archive is credited in proportion to its body as it arrives where the response gives a
 length, and `bytes` reaches `total` only once all of it is stored. A failed file fails the preload as what it is:
 `PrepareEngineError` for an engine's own data, `EngineLoadFailed` otherwise, and the manifest's own refusals as when a
-module starts. Without Cache Storage it fetches nothing and resolves. With `{ install: true }` it installs instead: a
-module the page runs prepares the entries' engines through its Worker, whose `install` events report it, and any other
-gets a short-lived Worker whose host only installs (`installModule`, [worker-host.md](worker-host.md#messages)), with
-the module's writer lock, the base data and the entries' engines' own data into the module's storage, then ends. Its
-`preload` events report the base data once installed, as an entry without an engine whatever the entries named, and each
-engine's as it is written. A module's install-only Workers run one at a time, each waiting for the one before, and one
-whose module has started by then leaves the install to the module's Worker. A module another host holds the writer lock
-for is skipped, and one whose storage would be memory has its files fetched instead, since memory would keep nothing. A
-start of the module waits for its install-only Worker to end, since that Worker holds the writer lock the module's own
+module starts. Without Cache Storage it fetches nothing and resolves, except a JavaScript module's manifest and script.
+A JavaScript module's script isn't stored in Cache Storage, which `import()` doesn't read: it is fetched, at low
+priority, with a plain `fetch` and read through, so that the browser's HTTP cache holds it for the Worker's `import()`,
+whether or not Cache Storage exists. Without Cache Storage the manifest is still fetched, for the URL the script's
+resolves against: the response's, after redirects, as the host takes it. The page can't ask the HTTP cache what it
+holds, so every preload fetches the script again, cheaply from that cache, and reports its whole size as lacking. Its
+progress is reported in the manifest's `module.size`, like a `.wasm`'s, and a failed fetch fails the preload with
+`EngineLoadFailed`. With `{ install: true }` it installs instead: a module the page runs prepares the entries' engines
+through its Worker, whose `install` events report it, and any other gets a short-lived Worker whose host only installs
+(`installModule`, [worker-host.md](worker-host.md#messages)), with the module's writer lock, the base data and the
+entries' engines' own data into the module's storage, then ends. Its `preload` events report the base data once
+installed, as an entry without an engine whatever the entries named, and each engine's as it is written. A module's
+install-only Workers run one at a time, each waiting for the one before, and one whose module has started by then leaves
+the install to the module's Worker. A module another host holds the writer lock for is skipped, and one whose storage
+would be memory has its files fetched instead, since memory would keep nothing. A JavaScript module has nothing to
+install but its script, which the HTTP cache keeps, so `install: true` fetches its script as a preload without it does.
+A start of the module waits for its install-only Worker to end, since that Worker holds the writer lock the module's own
 would otherwise go without for good; with several queued, it waits for the last. The environment it uses (the cache,
 `fetch`, the idle wait and the install) is the registry's `preload` option, which tests replace.
 
@@ -340,11 +353,11 @@ inactivity budgets must be finite and positive. Only the protocol Init request u
 including subsequent queued keys, use hangMs. A pending request with no reply and no ring movement for its budget is a
 hang; ring movement refreshes the inactivity window. These are progress bounds, not universal startup deadlines.
 
-While a module's Worker runs on IndexedDB, the registry keeps a connection to each of the module's databases, on which
-it opens no transaction, to hear a `versionchange` the host's own connections hear too: it closes its own at once and
-has the host check its storage (`Connection.checkStorage()`, `CheckStorage` through the mail word), so that a host
-asleep with nothing due posts `storage: closed` at once rather than when it next wakes
-([storage.md](storage.md#version-changes)).
+While a WebAssembly module's Worker runs on IndexedDB (a JavaScript module's opens no database), the registry keeps a
+connection to each of the module's databases, on which it opens no transaction, to hear a `versionchange` the host's own
+connections hear too: it closes its own at once and has the host check its storage (`Connection.checkStorage()`,
+`CheckStorage` through the mail word), so that a host asleep with nothing due posts `storage: closed` at once rather
+than when it next wakes ([storage.md](storage.md#version-changes)).
 
 CRASHED, the host's crashed message, Worker errors, inactivity and queue overflow terminate the connection. Owned keys
 are replayed in FIFO order, contexts lose preedit and panel output is hidden. Restart is immediate, then exponential
@@ -358,26 +371,29 @@ Every failure an engine or its Worker causes is one of a family of Effect `Data.
 `Error`s with a `_tag` (union `IbusWebError`, `isIbusWebError()`). Each carries `module`, `engine` where the failure was
 one engine's, and `diagnostic`, the Worker's or the engine's own account; the message names all three.
 
-| Error                | When                                                                                                                                                          |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `EngineLoadFailed`   | The manifest or settings metadata couldn't be fetched or decoded, two names claim one distribution, or the Worker, runtime, module or `Init` failed to start. |
-| `RuntimeAbiMismatch` | The host refused the module for another runtime's ABI.                                                                                                        |
-| `ProtocolMismatch`   | The manifest's protocol version isn't the page's or the runtime's.                                                                                            |
-| `EngineCrashed`      | The Worker crashed; `reason` is the `Crashed` record's (`TRAP`, `FAULT`, `RELAY`, `LOAD`, `HOST`), and a Worker the page lost is `HOST`.                      |
-| `EngineHung`         | A request made no progress for its budget, or more keys waited than the replay queue holds.                                                                   |
-| `ProtocolError`      | A request didn't fit the Worker's request slot; the diagnostic gives its size and the slot's.                                                                 |
-| `StorageUnavailable` | The settings source failed a read, write or registration.                                                                                                     |
-| `CreateEngineError`  | An engine failed to start (above).                                                                                                                            |
-| `PrepareEngineError` | An engine's own data failed to install (above).                                                                                                               |
+| Error                | When                                                                                                                                                                                                                                              |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `EngineLoadFailed`   | The manifest or settings metadata couldn't be fetched or decoded, two names claim one distribution, or the Worker, runtime, module or `Init` failed to start; for a JavaScript module, its script failed to import or doesn't match its manifest. |
+| `RuntimeAbiMismatch` | The host refused the module for another runtime's ABI.                                                                                                                                                                                            |
+| `ModuleAbiMismatch`  | The host refused a JavaScript module whose manifest or script states another module ABI than the host's.                                                                                                                                          |
+| `ProtocolMismatch`   | The manifest's protocol version isn't the page's or the runtime's (a JavaScript module's, the host's).                                                                                                                                            |
+| `EngineCrashed`      | The Worker crashed; `reason` is the `Crashed` record's (`TRAP`, `FAULT`, `RELAY`, `LOAD`, `HOST`), and a Worker the page lost is `HOST`.                                                                                                          |
+| `EngineHung`         | A request made no progress for its budget, or more keys waited than the replay queue holds.                                                                                                                                                       |
+| `ProtocolError`      | A request didn't fit the Worker's request slot; the diagnostic gives its size and the slot's.                                                                                                                                                     |
+| `StorageUnavailable` | The settings source failed a read, write or registration.                                                                                                                                                                                         |
+| `CreateEngineError`  | An engine failed to start (above).                                                                                                                                                                                                                |
+| `PrepareEngineError` | An engine's own data failed to install (above).                                                                                                                                                                                                   |
 
 The registry's `select`, `prepare`, `engines` and `whenReady` fail with them, as do the settings API's calls. A module
-refused for what it is (a mismatch, a manifest the host can't take, an `Init` the runtime refuses or that doesn't fit)
-fails at once; any other start failure restarts as a crash does. A crash or hang has no call to reject, so the
-registry's `state` event carries the error with `restarting` and `failed`: the one that ended the module, kept while it
-restarts and, after a third crash, as the reason it failed. A restart that fails once its Worker has started ends that
-Worker as a load crash but keeps the start's own error, such as `EngineLoadFailed` with its diagnostic. A module that
-becomes ready clears it. An unknown module name, a disposed facade and an unloaded module are the caller's mistakes and
-stay plain `Error`s.
+refused for what it is (a mismatch, a manifest the host can't take, a JavaScript module's script that throws as it is
+parsed or evaluated, an `Init` the runtime refuses or that doesn't fit) fails at once; any other start failure, among
+them a JavaScript module's script that fails to fetch, restarts as a crash does. A script that fails to import with a
+`TypeError` is told from a failed fetch by fetching its URL once more: an `ok` response means the script itself threw,
+which fails at once. A crash or hang has no call to reject, so the registry's `state` event carries the error with
+`restarting` and `failed`: the one that ended the module, kept while it restarts and, after a third crash, as the reason
+it failed. A restart that fails once its Worker has started ends that Worker as a load crash but keeps the start's own
+error, such as `EngineLoadFailed` with its diagnostic. A module that becomes ready clears it. An unknown module name, a
+disposed facade and an unloaded module are the caller's mistakes and stay plain `Error`s.
 
 Persistent Hangul Init previously spent 7814.7 ms in an observed module load, exceeding the ordinary two-second
 watchdog. A pinned-libhangul patch now gives each Hanja table an owned 64 KiB stdio buffer (two tables, at most 128

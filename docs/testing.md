@@ -398,8 +398,10 @@ use a test framework. The main ones:
 
 `checks.protocol-node` runs the package's Vitest suites under Node: GVariant vectors, strict rejection cases, schema and
 framing tests, generated-header/document tests, and fixed-seed Effect `Arbitrary` round trips, including encodings
-mutated by one to three bytes and containers whose framing offsets are 1, 2 and 4 bytes wide. The default Vitest
-configuration leaves out the parity suite and the decode benchmark.
+mutated by one to three bytes and containers whose framing offsets are 1, 2 and 4 bytes wide. Every request and record
+kind round trips through both directions of the codecs (`encodeRequest`/`decodeRequest`, `encodeRecord`/`decodeRecord`),
+and the framing refusals of the host-side pair are tested. The default Vitest configuration leaves out the parity suite
+and the decode benchmark.
 
 The transport's ring has four kinds of test beyond its unit cases:
 
@@ -417,12 +419,13 @@ The transport's ring has four kinds of test beyond its unit cases:
 
 `checks.protocol-parity` supplies a Nix-built corpus and a WASM C fixture producer using real IBus and json-glib, and
 runs the parity suite (`vitest.parity.config.ts`). Vitest asserts both directions of object serialization, every
-request's observed runtime arguments and result, every emitted record's fields and sequence, and that the strict decoder
-accepts exactly the inputs GLib's `g_variant_is_normal_form` does, with no exceptions, on 1000 fixed-seed byte strings:
-mutated normal-form encodings, unmutated ones and large containers. The test also requires the corpus to stay
-non-trivial (at least 40% normal form, at least 30% not, at least 100 signatures, offsets of widths 1, 2 and 4 among the
-accepted inputs). The suite throws without `IBUS_WEB_PROTOCOL_PARITY`, so the check fails rather than skips if it loses
-its manifest.
+request's observed runtime arguments and result, every emitted record's fields and sequence, that `decodeRequest` reads
+every corpus request and `encodeRecord` reproduces each emitted record's bytes, and that the strict decoder accepts
+exactly the inputs GLib's `g_variant_is_normal_form` does, with no exceptions, on 1000 fixed-seed byte strings: mutated
+normal-form encodings, unmutated ones and large containers. The test also requires the corpus to stay non-trivial (at
+least 40% normal form, at least 30% not, at least 100 signatures, offsets of widths 1, 2 and 4 among the accepted
+inputs). The suite throws without `IBUS_WEB_PROTOCOL_PARITY`, so the check fails rather than skips if it loses its
+manifest.
 
 The `files:runtime/libibus-web/include/ibus-web/protocol.h` and `files:packages/protocol/PROTOCOL.md` checks compare
 generated artifacts to their committed copies. Regenerate with `nix run .#write-files`.
@@ -446,9 +449,11 @@ nix build .#checks.x86_64-linux.hangul-data-closure
 ```
 
 The default WorkerHost Node gate runs deterministic unit tests without runtime fixtures. The default browser gate runs
-eight real Worker smoke cases: `protocolRoundtrip` and `replySequence`, each on asserting and released runtimes in
-Chromium and Firefox. They prove startup, request/reply results and ordered protocol output without storage contention
-or tight heartbeat timing. The small real Hangul host conformance gate remains default.
+twelve real Worker smoke cases: `protocolRoundtrip`, `replySequence` and `jsModuleSmoke`, each on asserting and released
+runtimes in Chromium and Firefox. They prove startup, request/reply results and ordered protocol output without storage
+contention or tight heartbeat timing; `jsModuleSmoke` starts the hand-written JavaScript module (its script imported by
+URL in the host's Worker) and types a key on its `trace` engine. The small real Hangul host conformance gate remains
+default.
 
 The full WorkerHost matrices, including storage, installation/upgrade contention, heartbeat liveness and stress, run
 explicitly:
@@ -463,6 +468,14 @@ nix build .#integration-checks -L
 dependency closure using the shared offline install and build machinery. Source-only edits to excluded packages such as
 core leave WorkerHost and Hangul host checks cached. Manifest, lockfile and shared configuration changes still
 invalidate relevant inputs; other checks may use the complete `ibusWeb.typescript.workspace`.
+
+The browser integration suite's `js-module.test.ts` runs that JavaScript module on both runtime builds in Chromium and
+Firefox: keys on each of its engines, a setting changed by the page, a property activated, a fault (the host's `CRASHED`
+state, and a `Crashed` record with reason `FAULT` naming the throw), a handler that never returns (the request stays
+unanswered, with no crash and nothing in the ring), and a WebAssembly module in a Worker of its own serving alongside
+it, still serving once the JavaScript module has crashed. The page turns the crash and the silence into `EngineCrashed`
+and `EngineHung`; that is the core package's ([core.md](core.md)), and `checks.core-browser` runs the silence through
+the page's hang detector to `EngineHung` and a restart.
 
 Worker-host integration suites run production transport behavior on asserting and released runtimes, under Node and
 Chromium/Firefox. They cover ordered `replyOutSeq`, doorbells, abandonment, fragment/padding boundaries, wraparound,
@@ -526,8 +539,11 @@ Its results are observations under one load, not a timer deadline under arbitrar
 
 `checks.core-node` runs deterministic Node tests for translation, connection budgets, key ownership, mixed
 sync/async/manual modes, context policy and recovery. `checks.core-browser` exercises real Worker/runtime/Hangul
-integration in Chromium and Firefox. Its synthetic DOM events use a helper that simulates unprevented native defaults;
-this does not prove trusted input, native undo, OS keyboard/layout, Safari or minimum browser versions.
+integration in Chromium and Firefox, and the page's handling of a JavaScript module against the real host: preloading
+fetches its script into the HTTP cache and leaves Cache Storage and the install-only Worker alone, `usage()`, `export()`
+and `reset()` touch no database, and a handler that never returns ends in `EngineHung` and a restart. Its synthetic DOM
+events use a helper that simulates unprevented native defaults; this does not prove trusted input, native undo, OS
+keyboard/layout, Safari or minimum browser versions.
 
 `packages.demo` builds examples/demo; `checks.example-demo-smoke` separately loads that built page in fresh Chromium,
 checks isolation and opaque archive delivery, and verifies typing and blur commit with constructed keys. The production

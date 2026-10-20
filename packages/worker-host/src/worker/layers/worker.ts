@@ -4,7 +4,7 @@
 // The Worker scope: the control buffer, the host's channel to the page, its
 // logger, and how it reports a failed start or a crash.
 
-import { encodeValue, errorReport } from "@ibus-web/protocol";
+import { CrashReason, encodeValue, errorReport } from "@ibus-web/protocol";
 import { RingWriter, transportLayout, Word } from "@ibus-web/protocol/transport";
 import { Cause, Context, Effect, Exit, Layer, Logger } from "effect";
 import { controlViews, postCrash, type ControlViews } from "../../shared/control.ts";
@@ -12,7 +12,7 @@ import type { HostInit, HostMessage } from "../../shared/messages.ts";
 import { HostConfig } from "../config.ts";
 import { crashMessage, crashRecord, startupMessage, startupRefusal, type CrashRecord } from "../failure.ts";
 import { Mail } from "../mail.ts";
-import { writeHostRecord } from "../output.ts";
+import { recordText, writeHostRecord } from "../output.ts";
 
 // What a Worker's error event carries, as far as the host reads it.
 export interface UncaughtError {
@@ -64,7 +64,7 @@ const hostLogger = (writer: RingWriter, control: ControlViews, notify: () => voi
       items: [
         { _tag: "u", value: levels[logLevel] },
         { _tag: "s", value: "worker-host" },
-        { _tag: "s", value: cause.reasons.length === 0 ? text : `${text}\n${Cause.pretty(cause)}` },
+        { _tag: "s", value: recordText(cause.reasons.length === 0 ? text : `${text}\n${Cause.pretty(cause)}`) },
       ],
     });
     if (writeHostRecord(writer, control, 33, payload)) notify();
@@ -106,21 +106,28 @@ export const workerLayer = (
         keepError(errorReport(event.error ?? event.message));
       });
 
+      const crashedPayload = (reason: number, message: string): Uint8Array =>
+        encodeValue("(us)", {
+          _tag: "()",
+          items: [
+            { _tag: "u", value: reason },
+            { _tag: "s", value: message },
+          ],
+        });
+
+      // Never throws, since a crash the page doesn't hear of leaves it
+      // waiting: a record that won't encode falls back to a fixed message.
       const crashed = ({ reason, message }: CrashRecord): void => {
         if (isCrashed) return;
         isCrashed = true;
-        writeHostRecord(
-          writer,
-          control,
-          34,
-          encodeValue("(us)", {
-            _tag: "()",
-            items: [
-              { _tag: "u", value: reason },
-              { _tag: "s", value: message },
-            ],
-          }),
-        );
+
+        let payload: Uint8Array;
+        try {
+          payload = crashedPayload(reason, recordText(message));
+        } catch {
+          payload = crashedPayload(CrashReason.host, "the host crashed with a message no record can carry");
+        }
+        writeHostRecord(writer, control, 34, payload);
         postCrash(control);
       };
 

@@ -13,7 +13,7 @@ import * as mounts from "../../src/worker/storage/mount.ts";
 import { Held } from "../../src/worker/storage/held.ts";
 import type { RuntimeHandle } from "../../src/worker/runtime.ts";
 import { engineInstallLock } from "../../src/shared/naming.ts";
-import type { ModuleManifest } from "@ibus-web/protocol";
+import type { WasmModuleManifest } from "@ibus-web/protocol";
 
 const gate = () => {
   let entered!: () => void;
@@ -45,7 +45,7 @@ describe("install lock lifetime", () => {
       const fetching = gate();
       const marking = gate();
       const collected = gate();
-      const engine: ModuleManifest = {
+      const engine: WasmModuleManifest = {
         name: `progress-${crypto.randomUUID()}`,
         version: "1",
         license: "MIT",

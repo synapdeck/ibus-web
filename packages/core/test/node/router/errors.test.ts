@@ -11,6 +11,7 @@ import {
   EngineHung,
   EngineLoadFailed,
   isIbusWebError,
+  ModuleAbiMismatch,
   ProtocolError,
   ProtocolMismatch,
   RuntimeAbiMismatch,
@@ -112,6 +113,18 @@ it.effect("a module that can't start rejects select with its tagged error and fa
           },
         },
         error: { _tag: "RuntimeAbiMismatch", diagnostic: "RuntimeAbiMismatch: manifest identity 0, runtime 1" },
+      },
+      {
+        options: {
+          start: async () => {
+            throw new ConnectionFailed({
+              reason: "load",
+              message: "ModuleAbiMismatch: script 2, host 1",
+              refused: "ModuleAbiMismatch",
+            });
+          },
+        },
+        error: { _tag: "ModuleAbiMismatch", diagnostic: "ModuleAbiMismatch: script 2, host 1" },
       },
       {
         options: {
@@ -281,6 +294,9 @@ it("each error is an Error whose message names the module, the engine and the di
   const error = new RuntimeAbiMismatch({ module: "hangul" });
   expect(error).toBeInstanceOf(Error);
   expect(error._tag).toBe("RuntimeAbiMismatch");
+  expect(new ModuleAbiMismatch({ module: "pinyin", diagnostic: "script 2, host 1" }).message).toBe(
+    "Module pinyin was built for another module ABI: script 2, host 1",
+  );
   expect(isIbusWebError(new Error("plain"))).toBe(false);
   for (const [reason, name] of [
     ["trap", "TRAP"],

@@ -24,6 +24,7 @@ interface RealHostData {
   runtimes: { name: string; url: string }[];
   hangulUrl: string;
   recoverableUrl: string;
+  jsUrl: string;
 }
 declare module "vitest" {
   interface ProvidedContext {

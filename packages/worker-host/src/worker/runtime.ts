@@ -183,6 +183,25 @@ export const faultReason = (handle: RuntimeHandle): string | undefined => {
   return reason === 0 ? undefined : readString(handle, reason);
 };
 
+export const pump = (rt: Runtime, constants: Pick<RuntimeConstants, "pumpError">): number => {
+  const delay = rt._ibusweb_pump();
+  if (delay === constants.pumpError) throw new Error("pumped off the runtime's thread");
+  return delay;
+};
+
+// Sleeps in the runtime, which runs the calls other threads proxy to this
+// one meanwhile. False once timeoutMs passed.
+export const wait = (
+  rt: Runtime,
+  constants: Pick<RuntimeConstants, "waitTimedOut">,
+  seen: number,
+  timeoutMs: number,
+): boolean => {
+  const ret = rt._ibusweb_wait(seen, timeoutMs);
+  if (ret < 0 && ret !== constants.waitTimedOut) throw new Error(`ibusweb_wait: ${ret}`);
+  return ret === 0;
+};
+
 // Runs a thread on every idle pool Worker, so a Worker's first thread, which
 // costs Chromium about 12 ms, is never one an engine waits for. Returns how
 // many ran.

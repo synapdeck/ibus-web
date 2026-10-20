@@ -2,9 +2,16 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
+import type { WasmModuleManifest } from "@ibus-web/protocol";
 import type { HostInit } from "../../src/shared/messages.ts";
 import { describe, expect, test } from "vitest";
-import { checkManifest, readManifest, readRuntimeConstants } from "../../src/worker/startup.ts";
+import {
+  checkJsManifest,
+  checkManifest,
+  readManifest,
+  readRuntimeConstants,
+  type StartingModule,
+} from "../../src/worker/startup.ts";
 
 const root = "/nix/store/00000000000000000000000000000000-schemas";
 const constants = {
@@ -38,6 +45,22 @@ const manifest = {
   engines: [{ name: "test", displayName: "test", languages: [], keyboard: { layout: "us", passThrough: [] } }],
   settingsSchemas: [],
 };
+const js = {
+  kind: "js",
+  name: "test",
+  version: "1",
+  license: "MIT",
+  protocol: 1,
+  moduleAbi: 1,
+  module: { url: "./test.js", size: 1 },
+  engines: manifest.engines,
+  settingsSchemas: [],
+};
+const runtime = async () => ({ ...constants, poolLowWater: 0 });
+const wasm = (starting: StartingModule): WasmModuleManifest => {
+  if (starting.kind === "js") throw new Error("expected a WebAssembly manifest");
+  return starting.manifest;
+};
 describe("manifest startup validation", () => {
   test("accepts the runtime's lower and upper memory bounds", () => {
     for (const memory of [65536, 131072]) expect(checkManifest({ ...manifest, memory }, constants).memory).toBe(memory);
@@ -63,6 +86,18 @@ describe("manifest startup validation", () => {
       new RegExp(`RuntimeAbiMismatch: manifest identity f{64}, runtime ${constants.runtimeIdentity}`),
     );
     expect(() => checkManifest({ ...manifest, protocol: 2 }, constants)).toThrow(/ProtocolMismatch.*2.*1/);
+  });
+  test("checks a JavaScript manifest against the host's protocol and module ABI, refusing a mismatch for good", () => {
+    expect(checkJsManifest(js)).toEqual(js);
+    for (const [change, refused, message] of [
+      [{ protocol: 2 }, "ProtocolMismatch", /ProtocolMismatch: manifest 2, host 1/],
+      [{ moduleAbi: 2 }, "ModuleAbiMismatch", /ModuleAbiMismatch: manifest 2, host 1/],
+      [{ runtimeAbi: 1 }, "manifest", /runtimeAbi/],
+    ] as const) {
+      expect(() => checkJsManifest({ ...js, ...change })).toThrow(expect.objectContaining({ refused }));
+      expect(() => checkJsManifest({ ...js, ...change })).toThrow(message);
+    }
+    expect(() => checkManifest(js, constants)).toThrow(expect.objectContaining({ refused: "manifest" }));
   });
   test("rejects missing threads", () => {
     const { threads: _, ...missing } = manifest;
@@ -92,16 +127,50 @@ test("redirected manifests resolve relative assets from their final location", a
   try {
     const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     for (const path of ["/latest.json", "/v1/manifest.json"]) {
-      const result = await readManifest({ manifestUrl: `${origin}${path}` } as HostInit<unknown, unknown>, constants);
+      const result = wasm(
+        await readManifest({ manifestUrl: `${origin}${path}` } as HostInit<unknown, unknown>, runtime),
+      );
       expect(result.module.url).toBe(`${origin}/v1/engine.wasm`);
       expect(result.data[0]!.url).toBe(`${origin}/v1/schemas.tar`);
     }
-    const inline = await readManifest({ manifest: relative } as HostInit<unknown, unknown>, constants);
+    const inline = wasm(await readManifest({ manifest: relative } as HostInit<unknown, unknown>, runtime));
     expect(inline.module.url).toBe("./engine.wasm");
     expect(inline.data[0]!.url).toBe("./schemas.tar");
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
+});
+
+test("a JavaScript manifest's script resolves from the manifest's final location, without the runtime", async () => {
+  const server = createServer((request, response) => {
+    if (request.url === "/v1/manifest.json") {
+      response.setHeader("Content-Type", "application/json");
+      response.end(JSON.stringify(js));
+    } else {
+      response.writeHead(404);
+      response.end();
+    }
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const result = await readManifest({ manifestUrl: `${origin}/v1/manifest.json` } as HostInit<unknown, unknown>, () =>
+      Promise.reject(new Error("the runtime's constants were read")),
+    );
+    expect(result).toEqual({ kind: "js", manifest: { ...js, module: { url: `${origin}/v1/test.js`, size: 1 } } });
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});
+
+test("a manifest that can't be read is reported before the constants are, and one that can is checked after them", async () => {
+  const constants = () => Promise.reject(new Error("constants.json is broken"));
+  await expect(readManifest({} as HostInit<unknown, unknown>, constants)).rejects.toThrow(
+    "manifest or manifestUrl is required",
+  );
+  await expect(readManifest({ manifest: { name: "broken" } } as HostInit<unknown, unknown>, constants)).rejects.toThrow(
+    "constants.json is broken",
+  );
 });
 
 describe("runtime constants startup", () => {

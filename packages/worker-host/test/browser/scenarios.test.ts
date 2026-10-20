@@ -5,7 +5,7 @@
 // the page spinning for each reply. heap-full runs under Node only.
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, test } from "vitest";
-import type { ModuleManifest } from "@ibus-web/protocol";
+import type { WasmModuleManifest } from "@ibus-web/protocol";
 import type { HostOptions, RunningHost } from "../shared/harness.ts";
 import { protocolRoundtrip } from "../shared/protocol.ts";
 import { failedInstantiate, refusedMemory, relayFailure, released, topUpLimit } from "../shared/lifecycle.ts";
@@ -182,8 +182,8 @@ describe.each(h.data.runtimes)("storage on the $name runtime", (runtime) => {
 
   // Each of these needs a host of its own.
   const ownHost = async (
-    engine: ModuleManifest,
-    use: (host: RunningHost, engine: ModuleManifest) => Promise<void>,
+    engine: WasmModuleManifest,
+    use: (host: RunningHost, engine: WasmModuleManifest) => Promise<void>,
     options: Partial<HostOptions> = {},
   ): Promise<void> => {
     const host = await storedHost(h, runtime, engine, options);

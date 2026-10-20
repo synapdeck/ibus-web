@@ -9,7 +9,7 @@
 // path's install lock, so no other host stages or moves the path meanwhile,
 // and holds the backend's window open.
 
-import type { ModuleManifest } from "@ibus-web/protocol";
+import type { WasmModuleManifest } from "@ibus-web/protocol";
 import { engineDataDir, engineStagingDir, stagingName } from "../../shared/naming.ts";
 import { RuntimeRefused, type RuntimeHandle } from "../runtime.ts";
 import { installArchives, quieted, type ArchiveHooks, type DataEntry } from "./archive.ts";
@@ -110,7 +110,7 @@ const trees = (handle: RuntimeHandle) => {
 // file system keeps a staging tree a later install of the path replaces.
 export const installStorePath = async (
   handle: RuntimeHandle,
-  engine: ModuleManifest,
+  engine: WasmModuleManifest,
   entry: DataEntry,
   hooks: StagingHooks,
 ): Promise<Staged> => {

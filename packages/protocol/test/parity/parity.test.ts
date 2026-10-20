@@ -6,9 +6,13 @@ import { Schema } from "effect";
 import { describe, expect, test } from "@effect/vitest";
 import {
   decodeRecord,
+  decodeRequest,
+  encodeRecord,
+  encodeRequest,
   decodeValue,
   encodeValue,
   OutputRecord,
+  Request,
   parseType,
   recordKinds,
   signatureOf,
@@ -16,7 +20,7 @@ import {
   type GVariantValue,
 } from "../../src/index.ts";
 import { fromTree, toTree } from "../../src/ibus/walk.ts";
-import { encodedObject, fuzzCounts, objects, objectSchemas, project, requests } from "./corpus.ts";
+import { encodedObject, fuzzCounts, lifecycle, objects, objectSchemas, project, requests } from "./corpus.ts";
 
 // The parity check provides the corpus and what the C side made of it; without them these tests
 // must fail rather than skip, so a check that lost its manifest can't pass.
@@ -119,6 +123,38 @@ describe("real IBus parity", () => {
     expect(expected.map((record) => record.kind).sort()).toEqual(
       [...recordKinds.keys()].filter((name) => name !== "Crashed").sort(),
     );
+  });
+  test("encodeRecord reproduces the bytes the runtime wrote for each record", () => {
+    const bytes = readFileSync(join(paths.output, "records.bin"));
+    let offset = 0;
+    let count = 0;
+    while (offset < bytes.length) {
+      const decoded = decodeRecord(bytes, offset);
+      const written = bytes.subarray(offset, offset + decoded.size);
+      expect(encodeRecord(decoded.seq, decoded.ic, decoded.record), decoded.record._tag).toEqual(
+        new Uint8Array(written),
+      );
+      offset += decoded.size;
+      count++;
+    }
+    expect(count).toBeGreaterThan(0);
+  });
+  test("decodeRequest reads every request the corpus holds", () => {
+    const corpus = [
+      ...Object.entries(lifecycle).map(([name, value]) => ({
+        file: join("lifecycle", `${name}.bin`),
+        ic: name === "init" ? 0 : 1,
+        value,
+      })),
+      ...requests.map(({ name, value }) => ({ file: join("requests", `${name}.bin`), ic: 1, value })),
+    ];
+    for (const { file, ic, value } of corpus) {
+      const bytes = readFileSync(join(paths.corpus, file));
+      const decoded = decodeRequest(bytes);
+      expect(decoded.ic, file).toBe(ic);
+      expect(Schema.encodeSync(Request)(decoded.request), file).toEqual(Schema.encodeSync(Request)(value));
+      expect(encodeRequest(decoded.ic, decoded.request), file).toEqual(new Uint8Array(bytes));
+    }
   });
   test("accepts exactly the byte strings GLib calls normal form", () => {
     const cases: { name: string; signature: string; source: keyof typeof fuzzCounts }[] = json(

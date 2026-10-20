@@ -1,0 +1,36 @@
+{
+  "kind": "js",
+  "name": "js-fixture",
+  "version": "1.0.0",
+  "license": "MIT OR Apache-2.0",
+  "protocol": 1,
+  "moduleAbi": 1,
+  "module": { "url": "module.mjs", "size": 9579 },
+  "engines": [
+    {
+      "name": "upper",
+      "displayName": "Fixture uppercase",
+      "languages": ["en"],
+      "keyboard": { "layout": "us", "passThrough": [] }
+    },
+    {
+      "name": "pick",
+      "displayName": "Fixture picker",
+      "languages": ["en"],
+      "keyboard": { "layout": "us", "passThrough": ["Tab"] }
+    },
+    {
+      "name": "trace",
+      "displayName": "Fixture trace",
+      "languages": ["en"],
+      "keyboard": { "layout": "us", "passThrough": [] }
+    },
+    {
+      "name": "stall",
+      "displayName": "Fixture stall",
+      "languages": ["en"],
+      "keyboard": { "layout": "us", "passThrough": [] }
+    }
+  ],
+  "settingsSchemas": ["org.example.jsfixture.upper", "org.example.jsfixture.pick"]
+}

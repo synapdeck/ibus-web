@@ -36,6 +36,13 @@ export class RuntimeAbiMismatch extends Data.TaggedError("RuntimeAbiMismatch")<I
   }
 }
 
+/** The module script was built against another module ABI than the host's: its manifest's or its own differs. */
+export class ModuleAbiMismatch extends Data.TaggedError("ModuleAbiMismatch")<IbusWebErrorFields & Message> {
+  constructor(fields: IbusWebErrorFields) {
+    super({ ...fields, message: describe("was built for another module ABI", fields) });
+  }
+}
+
 /** The module speaks another protocol version than the page or the runtime. */
 export class ProtocolMismatch extends Data.TaggedError("ProtocolMismatch")<IbusWebErrorFields & Message> {
   constructor(fields: IbusWebErrorFields) {
@@ -94,6 +101,7 @@ export class PrepareEngineError extends Data.TaggedError("PrepareEngineError")<
 export type IbusWebError =
   | EngineLoadFailed
   | RuntimeAbiMismatch
+  | ModuleAbiMismatch
   | ProtocolMismatch
   | EngineCrashed
   | EngineHung
@@ -105,6 +113,7 @@ export type IbusWebError =
 const families: readonly (abstract new (...args: never[]) => IbusWebError)[] = [
   EngineLoadFailed,
   RuntimeAbiMismatch,
+  ModuleAbiMismatch,
   ProtocolMismatch,
   EngineCrashed,
   EngineHung,

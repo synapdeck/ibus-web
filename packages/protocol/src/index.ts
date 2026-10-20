@@ -64,7 +64,14 @@ export {
   recordKinds,
 } from "./messages/records.ts";
 export { framing, type HeaderField, RECORD_CONTINUATION, PADDING_KIND } from "./messages/framing.ts";
-export { encodeRequest, decodeRecord, type DecodedRecord } from "./messages/codec.ts";
+export {
+  encodeRequest,
+  decodeRequest,
+  encodeRecord,
+  decodeRecord,
+  type DecodedRecord,
+  type DecodedRequest,
+} from "./messages/codec.ts";
 export { asError, errorMessage, errorReport, errorSummary } from "./errors.ts";
 export { PanelAction, type PanelEvent, type PanelRecord, type PanelUpdate } from "./messages/panel.ts";
 
@@ -81,9 +88,17 @@ export {
   type TransportViews,
 } from "./transport/layout.ts";
 export { RingWriter, RingReader, type WriteResult } from "./transport/ring.ts";
-export { EngineDescriptor, ModuleManifest, decodeModuleManifest, lazyStorePaths } from "./manifest.ts";
+export {
+  EngineDescriptor,
+  JsModuleManifest,
+  ModuleManifest,
+  WasmModuleManifest,
+  decodeModuleManifest,
+  lazyStorePaths,
+} from "./manifest.ts";
 
 export { IBusCapability, IBusModifier, IBusInputPurpose, IBusInputHints } from "./ibus/flags.ts";
+export { keyvalToUnicode } from "./keyval-unicode.generated.ts";
 export {
   SettingsMetadata,
   decodeSettingsMetadata,

@@ -36,7 +36,7 @@ import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { browserMode, crossOriginIsolation, servePlugin, serveDirs } from "@ibus-web/test-programs/vitest";
 import type { TestProjectInlineConfiguration, ViteUserConfig } from "vitest/config";
-import type { ModuleManifest } from "@ibus-web/protocol";
+import type { JsModuleManifest, WasmModuleManifest } from "@ibus-web/protocol";
 import type { BuildConstants, InstallerArchives, TestArchive, TestData } from "../shared/harness.ts";
 import { commands } from "./commands.ts";
 
@@ -82,8 +82,8 @@ const readModuleTests = (): ModuleTests | undefined => {
 };
 
 // A module distribution's manifest, its files' URLs under base.
-const moduleManifest = (dir: string, base: string): ModuleManifest => {
-  const manifest = readJson<ModuleManifest>(join(dir, "manifest.json"));
+const moduleManifest = (dir: string, base: string): WasmModuleManifest => {
+  const manifest = readJson<WasmModuleManifest>(join(dir, "manifest.json"));
   return {
     ...manifest,
     module: { ...manifest.module, url: `${base}${manifest.module.url}` },
@@ -93,6 +93,7 @@ const moduleManifest = (dir: string, base: string): ModuleManifest => {
 
 const prefix = "/@ibus-web-worker-host/";
 const dist = fileURLToPath(new URL("../../dist/", import.meta.url));
+const jsModule = fileURLToPath(new URL("../fixtures/js-module/", import.meta.url));
 
 // The archives' description, as their build writes it.
 type ArchiveDescription = Omit<TestArchive, "url"> & { upgrade: Omit<TestArchive, "url"> };
@@ -142,14 +143,15 @@ export const workerHostConfig = async (): Promise<ViteUserConfig> => {
     }),
   ) as Record<"missingConstants" | "malformedConstants", string>;
   type EngineName = "echo" | "thrower" | "empty" | "rebuilt" | "lazy";
-  const engineManifest = (name: EngineName, url: (dir: EngineName, file: string) => string): ModuleManifest => {
-    const engine = readJson<ModuleManifest>(join(manifest.engines[name], "manifest.json"));
+  const engineManifest = (name: EngineName, url: (dir: EngineName, file: string) => string): WasmModuleManifest => {
+    const engine = readJson<WasmModuleManifest>(join(manifest.engines[name], "manifest.json"));
     return {
       ...engine,
       module: { ...engine.module, url: url(name, engine.module.url) },
       data: engine.data.map((entry) => ({ ...entry, url: url(name, entry.url) })),
     };
   };
+  const jsFixture = readJson<JsModuleManifest>(join(jsModule, "manifest.json"));
   const testData = (
     url: (
       dir:
@@ -159,6 +161,7 @@ export const workerHostConfig = async (): Promise<ViteUserConfig> => {
         | "released"
         | "sides"
         | "dist"
+        | "jsModule"
         | "failing"
         | "archives"
         | "echo"
@@ -176,6 +179,7 @@ export const workerHostConfig = async (): Promise<ViteUserConfig> => {
       rebuilt: engineManifest("rebuilt", url),
       lazy: engineManifest("lazy", url),
     },
+    jsModule: { ...jsFixture, module: { ...jsFixture.module, url: url("jsModule", jsFixture.module.url) } },
     echoData: manifest.echoData,
     schemaFiles: readdirSync(manifest.schemas, { recursive: true, withFileTypes: true }).filter((entry) =>
       entry.isFile(),
@@ -210,6 +214,7 @@ export const workerHostConfig = async (): Promise<ViteUserConfig> => {
     ...brokenRuntimes,
     sides: manifest.sides,
     dist,
+    jsModule,
     failing,
     archives: manifest.archives,
   };

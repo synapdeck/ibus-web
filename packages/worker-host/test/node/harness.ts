@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import type { ModuleManifest } from "@ibus-web/protocol";
+import type { WasmModuleManifest } from "@ibus-web/protocol";
 import { inject } from "vitest";
 import type { SideModule } from "../../src/shared/messages.ts";
 import { encodeComponent } from "../../src/shared/naming.ts";
@@ -78,9 +78,9 @@ export const nodeHarness = async (): Promise<Harness> => {
     budgetMs: BUDGET_MS,
   });
 
-  const enginePath = (engine: Pick<ModuleManifest, "name">): string =>
+  const enginePath = (engine: Pick<WasmModuleManifest, "name">): string =>
     join(scratch, "engines", encodeComponent(engine.name));
-  const dataPath = (engine: Pick<ModuleManifest, "name">): string => join(enginePath(engine), "data");
+  const dataPath = (engine: Pick<WasmModuleManifest, "name">): string => join(enginePath(engine), "data");
   const launchAsAPage = launchingAsAPage(launch, locks);
   return {
     ...clock,

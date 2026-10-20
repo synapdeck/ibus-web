@@ -43,13 +43,19 @@ GVariant tuple can't express. Schema dictionaries are JavaScript records, so int
 the tree layer preserves their order.
 
 Each message is a `Schema.TaggedClass` annotated with its kind, and the messages form tagged request and output unions.
-Cached synchronous schema codecs implement `encodeRequest` and `decodeRecord`. Requests have an eight-byte header;
-output records have a sixteen-byte header and zero padding to eight-byte alignment. `decodeRecord` returns `size`,
-including padding, for advancing a reader. Its errors split by layer: framing faults (a truncated header, an unknown
-kind, any flag set, including `CONTINUATION`, whose fragments the ring reader reassembles first, nonzero padding, a
-length past the buffer, a `Crashed` record with a nonzero `seq` or `ic`) throw `CodecError`; a payload that doesn't
-decode as its kind's schema throws Effect's `SchemaError`. `encodeRequest` throws `CodecError` for an `ic` outside 32
-bits and `SchemaError` for a request that fails its schema.
+Cached synchronous schema codecs implement `encodeRequest`, `decodeRequest`, `encodeRecord` and `decodeRecord`. A host
+that serves requests itself, such as the JavaScript backend, uses `decodeRequest` and `encodeRecord`. Requests have an
+eight-byte header; output records have a sixteen-byte header and zero padding to eight-byte alignment. `decodeRecord`
+returns `size`, including padding, for advancing a reader. Its errors split by layer: framing faults (a truncated
+header, an unknown kind, any flag set, including `CONTINUATION`, whose fragments the ring reader reassembles first,
+nonzero padding, a length past the buffer, a `Crashed` record with a nonzero `seq` or `ic`) throw `CodecError`; a
+payload that doesn't decode as its kind's schema throws Effect's `SchemaError`. `decodeRequest(bytes)` returns
+`{ ic, request }` and holds requests to the runtime's rules: a header of fewer than eight bytes, a header with no
+payload (even `()` takes a byte), nonzero flags and an unknown kind (the test range `0xff00`–`0xffff` included) throw
+`CodecError`, and a mismatched payload throws `SchemaError`. `encodeRecord(seq, ic, record)` writes flags 0 and the
+padding, and throws `CodecError` for a `seq` or `ic` outside 32 bits, an unknown record and a `Crashed` record with a
+nonzero `seq` or `ic`. `encodeRequest` throws `CodecError` for an `ic` outside 32 bits and `SchemaError` for a request
+that fails its schema.
 
 `Crashed (us)` (kind 34) is written by the host only, with `seq` and `ic` 0: its `reason` is one of `TRAP` 1, `FAULT` 2
 (a request returned `-ECANCELED`), `RELAY` 3, `LOAD` 4 and `HOST` 5 (`CrashReason`), and any other value fails its
@@ -75,6 +81,14 @@ summary/description, numeric range and choices. `decodeSettingsMetadata` rejects
 defaults/ranges. Its JSON encoding preserves 64-bit integers as decimal strings, then restores `bigint` in the decoded
 tree. Generated Hangul keyboard metadata contains no `choices`; consumers must not infer an enum from the settings name.
 
+`keyvalToUnicode(keyval)` is `ibus_keyval_to_unicode()`: the code point a keyval stands for, or `undefined` for none.
+Latin-1's printable keysyms are their code points and a Unicode keysym (`0x01000000` plus the code point) its code
+point, short of surrogates and past U+10FFFF; every other keysym is looked up in `keyval-unicode.generated.ts`, which
+`tools/keysyms` generates from the pinned `keysymdef.h`'s annotations with the few keysyms where IBus's own table
+departs from them (the angle brackets, the legacy currency signs, and the keypad's Tab and Enter, which stand for
+nothing). Control characters are among its values, BackSpace's U+0008 for one. `checks.tools-keysyms-ibus` holds the
+table to the native libibus's function for every keyval below the Unicode keysyms and around their bounds.
+
 ## Transport
 
 `@ibus-web/protocol/transport` exports the shared-memory layout and the ring: `Word`, `State`, `ReqMode`,
@@ -93,9 +107,54 @@ framed with flags 0 for `decodeRecord`, and clears `ringWaiting` and bumps `wake
 writer. Both throw on counters that claim more than the ring holds. The wire rules, including the writer's full-ring
 wait, are the generated [Transport section](../packages/protocol/PROTOCOL.md#transport)'s.
 
-`ModuleManifest`, its `EngineDescriptor`s and `decodeModuleManifest(json, { minimum, maximum })` decode a module's
-distribution manifest against the runtime's memory bounds, rejecting unknown keys at every level; the rules are
-[engines.md](engines.md#distribution-manifest)'s.
+`ModuleManifest` is the union of `WasmModuleManifest` (`kind` absent or `"wasm"`) and `JsModuleManifest` (`kind: "js"`),
+both with `EngineDescriptor`s. `decodeModuleManifest(json, { minimum, maximum })` decodes either against the runtime's
+memory bounds, which only a WebAssembly manifest is held to, rejecting unknown keys at every level; the rules are
+[engines.md](engines.md#distribution-manifest)'s. The Worker host decodes a JavaScript manifest with `JsModuleManifest`
+alone, since it has no runtime to take bounds from ([worker-host.md](worker-host.md#startup-failures)).
+
+## Module scripts
+
+`@ibus-web/protocol/module-script` is the contract between the Worker host and a JavaScript module script's default
+export. It holds `MODULE_ABI` (1), types, and the few plain constants a script needs beside them: `Modifier`, the
+`IBusModifierType` bits a key's state holds (`RELEASE` among them), `Underline`, `IBusAttrUnderline`'s values,
+`PreeditHint`, `IBusAttrPreedit`'s, `InputPurpose` and `InputHints`, the `SetContentType` request's `purpose` and
+`hints`, and the contract's names as arrays, `attributeTypes`, `propertyKinds`, `propertyStates` and `logLevels`, from
+which its types are drawn. It imports nothing, so a script that uses it pulls nothing of Effect or the codecs into its
+bundle; a package test checks that its built file has no import or re-export, and that its constants are IBus's. A
+JavaScript manifest's `moduleAbi` and the export's `ibusWebModule` both state `MODULE_ABI`, a plain property rather than
+a symbol so that it survives any bundler.
+
+- `ModuleScript` is the export: `ibusWebModule`, `name`, `version`, `license`, an optional `settingsPrefix`, `engines`
+  by IBus engine name in the manifest's order, and optional `persist()` and `shutdown()`. An engine's settings schema id
+  is `<settingsPrefix>.<engine>`, and its path that id's components joined by `/`.
+- `ModuleEngine` is an engine: its `descriptor` (the manifest's `EngineDescriptor` without its name), its `settings`
+  declarations by key and `create(context)`, which returns an `EngineSession`. A throw from `create` fails the
+  `CreateEngine` with the error's message.
+- `SettingDeclaration` declares a key as `b`, `s` (optionally with `choices`), `i` or `d` (optionally with an inclusive
+  `range`), or `as`, with a default of that type and an optional summary and description. `SettingValue` is
+  `boolean | string | number | readonly string[]`.
+- `EngineContext` is what a session writes to. `commit`, `preedit(text, cursor, visible, mode)`,
+  `auxiliary(text, visible)`, `lookupTable(page, visible)`, `registerProperties`, `updateProperty`, `forwardKey`,
+  `deleteSurrounding` and `requireSurrounding` each queue the output record of the same name, in call order.
+  `settings.get` and `settings.set` read and write the host's store of the engine's own keys, and throw for an
+  undeclared key or, on `set`, a value outside the key's type, range or choices. `after(ms, fn)` runs `fn` from the
+  host's pump and returns a function that cancels it, since the event loop never runs while a module is serving.
+  `log(level, message)` takes `debug`, `info`, `warning` or `error`. Calls on a destroyed session's context are ignored.
+- `EngineSession` has one optional handler per engine request, with the request's fields as arguments:
+  `processKey(keyval, keycode, state, character)`, which returns whether it consumed the key and gets the key's text
+  (empty for none) beside IBus's values; `focusIn`, `focusOut`, `reset`, `enable`, `disable`, `setCursorLocation`,
+  `setCapabilities`, `pageUp`, `pageDown`, `cursorUp`, `cursorDown`, `candidateClicked`, `propertyActivate`,
+  `setSurroundingText(text, cursor, anchor)`, `setContentType` and `destroy`. `settingChanged(key, value)` runs in every
+  session of the engine when a stored value changes: at once for a change from the page, and once the call that set it
+  returns for a session's `settings.set`. A missing handler does nothing and a missing `processKey` consumes no key; a
+  throw from any handler is a fault.
+- The values crossing it are plain. `RichText` is a string or a `StyledText`, a string with `TextAttribute` ranges
+  (`underline`, `foreground`, `background` or `hint`, with IBus's value) counted in code points, as every cursor and
+  offset is. `CandidatePage` is the one page the panel displays: its candidates, optional labels, the cursor's index on
+  it, whether the cursor is visible and an orientation. `Property` is a whole `IBusProperty`: key, `kind` (`normal`,
+  `toggle`, `radio`, `menu` or `separator`), label, optional symbol, tooltip and icon, `sensitive` and `visible`
+  (default true), `state` (`unchecked`, the default, `checked` or `inconsistent`) and a menu's `children`.
 
 ## Generated artifacts
 

@@ -86,6 +86,7 @@ const registryWith = (
   cache: MemoryCache,
   fetch: typeof globalThis.fetch,
   more: {
+    manifest?: ModuleManifest;
     install?: (options: InstallOptions) => Promise<InstallOutcome>;
     start?: () => Promise<FakeConnection>;
   } = {},
@@ -94,7 +95,7 @@ const registryWith = (
     hostUrl: manifestUrl,
     runtimeUrl: manifestUrl,
     modules: { test: manifestUrl },
-    loadManifest: async () => manifest,
+    loadManifest: async () => more.manifest ?? manifest,
     loadMetadata: async () => ({ schemas: [] }),
     waitForWriter: () => Effect.void,
     start:
@@ -160,6 +161,130 @@ it.effect("preload fetches a module's files and an engine's own data into the ca
       requests.map(({ url }) => url),
       "a second preload",
     ).toEqual([manifestUrl.href]);
+  }).pipe(Effect.provide(services)),
+);
+
+const script: ModuleManifest = {
+  kind: "js",
+  name: "test",
+  version: "1",
+  license: "MIT",
+  protocol: 1,
+  moduleAbi: 1,
+  module: { url: "./test.js", size: 100 },
+  engines: manifest.engines.slice(0, 1),
+  settingsSchemas: [],
+};
+
+// A network of the manifest and the script, the script in tenths with a length. The manifest's response may come from
+// where a redirect led, which the script is then beside.
+const scriptNetwork = (status = 200, redirected?: string) => {
+  const requests: { url: string; priority: string | undefined }[] = [];
+  const script = redirected === undefined ? at("./test.js") : new URL("./test.js", redirected).href;
+  const fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const url = String(input);
+    requests.push({ url, priority: init?.priority });
+    if (url === script && status !== 200) return new Response(null, { status });
+    if (url !== script) {
+      const response = new Response(new Uint8Array(64));
+      if (url === manifestUrl.href && redirected !== undefined)
+        Object.defineProperty(response, "url", { value: redirected });
+      return response;
+    }
+
+    let sent = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent >= 100) return controller.close();
+        sent += 10;
+        controller.enqueue(new Uint8Array(10));
+      },
+    });
+    return new Response(body, { headers: { "Content-Length": "100" } });
+  };
+  return { requests, fetch };
+};
+
+it.effect("preload fetches a JavaScript module's script at low priority, outside the cache, reporting its size", () =>
+  Effect.gen(function* () {
+    const cache = new MemoryCache();
+    const { requests, fetch } = scriptNetwork();
+    const registry = yield* registryWith(cache, fetch, { manifest: script });
+    const events = yield* registry.events.pipe(
+      Stream.takeUntil((event) => event._tag === "preload" && event.bytes === 100),
+      Stream.runCollect,
+      Effect.forkChild,
+    );
+    yield* Effect.yieldNow;
+
+    yield* registry.preload([{ module: "test", engine: "test" }]);
+    expect(requests.map(({ url }) => url).toSorted()).toEqual([manifestUrl.href, at("./test.js")].toSorted());
+    expect(new Set(requests.map(({ priority }) => priority))).toEqual(new Set(["low"]));
+    expect([...cache.stored.keys()], "only the manifest is in Cache Storage").toEqual([
+      preloadKey(manifestUrl.href, script),
+    ]);
+
+    const reported = preloads([...(yield* Fiber.join(events))]);
+    expect(reported[0]).toEqual({ engine: "test", bytes: 0, total: 100 });
+    expect(reported.at(-1)).toEqual({ engine: "test", bytes: 100, total: 100 });
+    expect(reported.slice(1, -1).every(({ bytes }) => bytes < 100)).toBe(true);
+  }).pipe(Effect.provide(services)),
+);
+
+it.effect(
+  "preload fetches a JavaScript module's script where there is no Cache Storage, beside the manifest's response",
+  () =>
+    Effect.gen(function* () {
+      const redirected = "https://example.test/moved/manifest.json";
+      const { requests, fetch } = scriptNetwork(200, redirected);
+      const registry = yield* makeModuleRegistry({
+        hostUrl: manifestUrl,
+        runtimeUrl: manifestUrl,
+        modules: { test: manifestUrl },
+        loadManifest: async () => script,
+        loadMetadata: async () => ({ schemas: [] }),
+        waitForWriter: () => Effect.void,
+        start: async () => {
+          throw new Error("preloading started a Worker");
+        },
+        preload: { caches: () => undefined, fetch, idle: async () => {}, install: async () => "installed" },
+      });
+
+      yield* registry.preload([{ module: "test" }]);
+      expect(requests).toEqual([
+        { url: manifestUrl.href, priority: "low" },
+        { url: "https://example.test/moved/test.js", priority: "low" },
+      ]);
+    }).pipe(Effect.provide(services)),
+);
+
+it.effect("a JavaScript module's script that fails to fetch rejects as the module's", () =>
+  Effect.gen(function* () {
+    const registry = yield* registryWith(new MemoryCache(), scriptNetwork(404).fetch, { manifest: script });
+    const failed = yield* Effect.flip(registry.preload([{ module: "test" }]));
+    expect(failed).toBeInstanceOf(EngineLoadFailed);
+    expect(failed).toMatchObject({ module: "test" });
+  }).pipe(Effect.provide(services)),
+);
+
+it.effect("install mode fetches a JavaScript module's script into the HTTP cache, installing nothing", () =>
+  Effect.gen(function* () {
+    const { requests, fetch } = scriptNetwork();
+    const registry = yield* registryWith(new MemoryCache(), fetch, { manifest: script });
+
+    yield* registry.preload([{ module: "test", engine: "test" }], { install: true });
+    expect(requests.map(({ url }) => url).toSorted()).toEqual([manifestUrl.href, at("./test.js")].toSorted());
+  }).pipe(Effect.provide(services)),
+);
+
+it.effect("each preload of a JavaScript module fetches its script again", () =>
+  Effect.gen(function* () {
+    const { requests, fetch } = scriptNetwork();
+    const registry = yield* registryWith(new MemoryCache(), fetch, { manifest: script });
+
+    yield* registry.preload([{ module: "test" }]);
+    yield* registry.preload([{ module: "test" }]);
+    expect(requests.filter(({ url }) => url === at("./test.js"))).toHaveLength(2);
   }).pipe(Effect.provide(services)),
 );
 

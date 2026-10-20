@@ -67,7 +67,10 @@ one such distribution, run in one Worker; its engines are the input methods insi
 `CreateEngine`. `ModuleManifest` and `EngineDescriptor` in `@ibus-web/protocol` have these fields:
 
 ```ts
-type ModuleManifest = {
+type ModuleManifest = WasmModuleManifest | JsModuleManifest;
+
+type WasmModuleManifest = {
+  kind?: "wasm"; // absent means "wasm"
   name: string;
   version: string;
   license: string;
@@ -84,6 +87,19 @@ type ModuleManifest = {
   settingsMetadata?: { url: string; size: number };
 };
 
+type JsModuleManifest = {
+  kind: "js";
+  name: string;
+  version: string;
+  license: string;
+  protocol: number;
+  moduleAbi: number;
+  module: { url: string; size: number };
+  engines: EngineDescriptor[];
+  settingsSchemas: string[];
+  settingsMetadata?: { url: string; size: number };
+};
+
 type EngineDescriptor = {
   name: string;
   displayName: string;
@@ -92,6 +108,21 @@ type EngineDescriptor = {
   data?: string[]; // store paths of `data` this engine alone needs
 };
 ```
+
+`kind` tells the variants apart. A manifest without it is a WebAssembly module, and `kind: "wasm"` may also be written.
+Unknown keys are refused in both variants.
+
+A JavaScript module is one self-contained ES module script, `module`, instead of a `.wasm` and the runtime around it.
+`moduleAbi` is the version of the contract between the host and the script's exports. `runtimeAbi`, `runtimeIdentity`,
+`memory`, `threads`, `data` and `settingsSchemaDir` have no meaning without the runtime, so a JavaScript manifest that
+carries one is refused, and so is `data` on one of its engines. Its `name` and engines must be its script's, and its
+`settingsSchemas` the ids the script's settings declarations derive, `<settingsPrefix>.<engine>` for each engine that
+declares any; the host refuses a manifest that disagrees ([worker-host.md](worker-host.md#the-program-and-its-scopes)).
+The name, version, license, engine and settings rules apply to both variants; `decodeModuleManifest`'s memory bounds
+apply only to the WebAssembly one. The script is run by the JavaScript backend of
+[the Worker host](worker-host.md#backends), which takes its engines' settings, properties and output through the
+contract in [protocol.md](protocol.md#module-scripts); such a module keeps nothing in [storage.md](storage.md)'s
+databases.
 
 An archive's `size` is the bytes of file data it installs, and `files` its entries, the store path's own directory,
 every directory, file and link under it, each of which WasmFS's memory backend keeps an object for where the data is
@@ -118,22 +149,26 @@ archive bytes. Hosts use the entire version for data-cache and installation-lock
 while an older host continues reading its own closure. Manually authored manifests must likewise change version whenever
 their distribution changes.
 
-`decodeModuleManifest` enforces:
+`decodeModuleManifest` enforces, for both variants unless a rule names one:
 
 - `name` matches `[A-Za-z0-9][A-Za-z0-9._+-]*`: it becomes a directory and database name, so it must be one path
   component that can't climb out of its parent or hide itself;
 - `version`, `license` and every URL are non-empty; `engines` lists at least one engine, with non-empty, unique names
   and non-empty display names;
-- `memory` is bytes in whole 64 KiB pages within the runtime bounds; `threads` is a nonnegative engine pool share;
-- each `storePath` is `/nix/store/<32 base-32 characters>-<name>`, with no two alike;
-- each engine's `data` names store paths of the manifest's `data`, none twice;
-- `settingsSchemaDir` is canonical (no empty, `.` or `..` component) and lies inside one of the data's store paths, and
-  not inside one an engine names, since `Init` reads the schemas before any engine is made;
+- WebAssembly only: `memory` is bytes in whole 64 KiB pages within the runtime bounds; `threads` is a nonnegative engine
+  pool share;
+- WebAssembly only: each `storePath` is `/nix/store/<32 base-32 characters>-<name>`, with no two alike;
+- WebAssembly only: each engine's `data` names store paths of the manifest's `data`, none twice; a JavaScript engine
+  names none;
+- WebAssembly only: `settingsSchemaDir` is canonical (no empty, `.` or `..` component) and lies inside one of the data's
+  store paths, and not inside one an engine names, since `Init` reads the schemas before any engine is made;
 - unknown keys are rejected at every level, so a misspelled field fails rather than reading as missing.
 
-The host validates the manifest before allocating runtime resources and rejects ABI/protocol mismatches: `runtimeAbi`
-must be `IBUSWEB_RUNTIME_ABI`, and `runtimeIdentity`, a SHA-256 in lowercase hexadecimal, the runtime's identity over
-its libraries' versions and exports ([runtime.md](runtime.md#the-export-list)).
+The host validates the manifest before allocating runtime resources and rejects ABI/protocol mismatches. For a
+WebAssembly manifest `runtimeAbi` must be `IBUSWEB_RUNTIME_ABI`, `runtimeIdentity`, a SHA-256 in lowercase hexadecimal,
+the runtime's identity over its libraries' versions and exports ([runtime.md](runtime.md#the-export-list)), and
+`protocol` the runtime's. For a JavaScript manifest `moduleAbi` must be the host's `MODULE_ABI` and `protocol` the
+host's; the script's own `ibusWebModule` must state the same ABI ([worker-host.md](worker-host.md#startup-failures)).
 
 The build computes memory as `(runtime minimum + threads × 1 MiB + heapBytes) × 1.25`, rounded up to whole MiB.
 `heapBytes` is build/check metadata, not a manifest field: the declared peak of the heap, measured from its base, which

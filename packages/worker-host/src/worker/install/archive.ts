@@ -5,7 +5,7 @@
 // each entry through the runtime's file system as its bytes arrive, so
 // neither a whole archive nor a whole file is ever held.
 
-import { errorMessage, errorSummary, type ModuleManifest } from "@ibus-web/protocol";
+import { errorMessage, errorSummary, type WasmModuleManifest } from "@ibus-web/protocol";
 import { createTarDecoder, type TarHeader } from "modern-tar";
 import { decompressed, type BrotliDecoder } from "./decompress.ts";
 import { entryWriter, type Written } from "./writer.ts";
@@ -53,7 +53,7 @@ export interface ExtractHooks extends Partial<Pick<ArchiveHooks, "beforePiece" |
 }
 
 // A store path's archive, as the manifest lists it.
-export type DataEntry = ModuleManifest["data"][number];
+export type DataEntry = WasmModuleManifest["data"][number];
 
 // An archive whose connection fails is fetched again, this many times in
 // all, the wait before each try doubling from the first.
@@ -256,7 +256,7 @@ const watched = (body: ReadableStream<Uint8Array>, failed: (error: unknown) => n
 // it wrote, which every entry it has replaces.
 const installArchive = async (
   handle: RuntimeHandle,
-  engine: ModuleManifest,
+  engine: WasmModuleManifest,
   url: string,
   dir: string,
   storeName: string,
@@ -325,7 +325,7 @@ const installArchive = async (
 // under the name placedAs gives that path's name.
 export const installArchives = async (
   handle: RuntimeHandle,
-  engine: ModuleManifest,
+  engine: WasmModuleManifest,
   entries: readonly DataEntry[],
   hooks: ArchiveHooks,
   placedAs: (storeName: string) => string = (storeName) => storeName,

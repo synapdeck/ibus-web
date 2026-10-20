@@ -4,7 +4,7 @@
 // What a test environment gives the scenarios: the build's values, and hosts
 // to run them against.
 
-import type { ModuleManifest } from "@ibus-web/protocol";
+import type { JsModuleManifest, ModuleManifest, WasmModuleManifest } from "@ibus-web/protocol";
 import type { TransportLayout } from "@ibus-web/protocol/transport";
 import type { HostConfigValues } from "../../src/shared/config.ts";
 import { controlViews, createControl, postMail } from "../../src/shared/control.ts";
@@ -56,7 +56,10 @@ export interface TestArchive {
 // What Vitest's configuration provides each environment's tests, with
 // locations as that environment loads them.
 export interface TestData {
-  engines: Record<"echo" | "thrower" | "empty" | "rebuilt" | "lazy", ModuleManifest>;
+  engines: Record<"echo" | "thrower" | "empty" | "rebuilt" | "lazy", WasmModuleManifest>;
+  // The hand-written JavaScript module, its script at a URL this environment
+  // imports.
+  jsModule: JsModuleManifest;
   echoData: string;
   schemaFiles: number;
   runtimes: RuntimeBuild[];
@@ -106,7 +109,7 @@ export interface HostOptions {
   layout?: TransportLayout;
   runtime: RuntimeBuild;
   // The engine the host runs, by default one of no storage's named "test".
-  engine?: ModuleManifest;
+  engine?: WasmModuleManifest;
   manifest?: ModuleManifest;
   manifestUrl?: string;
   storage?: EngineStorage;
@@ -172,7 +175,7 @@ export interface Harness extends Clock {
   // this environment shares: in a browser, the engine's IndexedDB
   // database; under Node, a directory of the engine's own. And what the
   // host mounts it on.
-  storage(engine: ModuleManifest): EngineStorage;
+  storage(engine: WasmModuleManifest): EngineStorage;
   storageMount: "indexeddb" | "node";
   // What leaves a host told to mount IndexedDB without it: under Node,
   // nothing, since Node has none; in a browser, a host that throws as an
@@ -181,23 +184,23 @@ export interface Harness extends Clock {
   // Opens the engine's database at its next version and closes it again, as
   // an upgrade in another tab would; resolves once it opened, with how long
   // that took in milliseconds. Browsers only.
-  upgradeDatabase?: (engine: ModuleManifest) => Promise<number>;
+  upgradeDatabase?: (engine: WasmModuleManifest) => Promise<number>;
   locks: Locks;
   // The versions, encoded, whose data the engine's storage keeps.
-  versions(engine: ModuleManifest): Promise<string[]>;
+  versions(engine: WasmModuleManifest): Promise<string[]>;
   // Leaves the marker of the engine's version as a write cut short would: a
   // file holding part of it under Node, a value that isn't one in
   // IndexedDB.
-  tearMarker(engine: ModuleManifest): Promise<void>;
+  tearMarker(engine: WasmModuleManifest): Promise<void>;
   // Leaves <version>.marking beside the engine's data, as a host that
   // stopped while writing a marker would. Node only.
-  strayMarking?: (engine: ModuleManifest, version: string) => Promise<void>;
+  strayMarking?: (engine: WasmModuleManifest, version: string) => Promise<void>;
   // The names under the engine's data directory on the host, sorted. Node
   // only.
-  dataEntries?: (engine: ModuleManifest) => Promise<string[]>;
+  dataEntries?: (engine: WasmModuleManifest) => Promise<string[]>;
   // Opens the database of the engine's version's data on a connection that
   // ignores requests to close; resolves with what closes it. Browsers only.
-  holdDataDatabase?: (engine: ModuleManifest) => Promise<() => void>;
+  holdDataDatabase?: (engine: WasmModuleManifest) => Promise<() => void>;
   // Removes the storage the hosts left behind, once none runs.
   cleanUp(): Promise<void>;
   printed: Printed;
@@ -380,10 +383,13 @@ export const hostLauncher =
         ...(options.layout === undefined ? {} : { layout: options.layout }),
         ...(options.manifestUrl === undefined
           ? {
-              manifest: {
-                ...(options.manifest ?? options.engine ?? data.engines.empty),
-                memory: options.memory?.initial ?? options.manifest?.memory ?? options.engine?.memory ?? minimum,
-              },
+              manifest:
+                options.manifest?.kind === "js"
+                  ? options.manifest
+                  : {
+                      ...(options.manifest ?? options.engine ?? data.engines.empty),
+                      memory: options.memory?.initial ?? options.manifest?.memory ?? options.engine?.memory ?? minimum,
+                    },
             }
           : { manifestUrl: env.resolve(options.manifestUrl) }),
         storage: options.storage ?? { kind: "none" },

@@ -186,3 +186,71 @@ describe("an engine's own data", () => {
       decodeModuleManifest({ ...withDictionary, engines: [{ ...engine, data: [storePath] }] }, bounds),
     ).toThrow(/schema directory is in \/nix\/store\/\S+-hangul-data, which installs only with an engine/));
 });
+
+describe("JavaScript module manifests", () => {
+  const js = {
+    kind: "js",
+    name: "pinyin",
+    version: "1",
+    license: "MIT",
+    protocol: 1,
+    moduleAbi: 1,
+    module: { url: "./pinyin.0123abcd.js", size: 2048 },
+    engines: [engine],
+    settingsSchemas: ["org.freedesktop.ibus.engine.pinyin"],
+  };
+
+  test("decodes one, with or without settings metadata", () => {
+    const settingsMetadata = { url: "./settings.json", size: 200 };
+    expect(decodeModuleManifest(js, bounds)).toEqual(js);
+    expect(decodeModuleManifest({ ...js, settingsMetadata }, bounds)).toEqual({ ...js, settingsMetadata });
+  });
+  test("tells the variants apart by kind, an absent kind being WebAssembly", () => {
+    expect(decodeModuleManifest(js, bounds).kind).toBe("js");
+    expect(decodeModuleManifest(valid, bounds).kind).toBeUndefined();
+    expect(decodeModuleManifest({ ...valid, kind: "wasm" }, bounds).kind).toBe("wasm");
+  });
+  test.each(["other", "", 1, null])("refuses kind %j", (kind) =>
+    expect(() => decodeModuleManifest({ ...js, kind }, bounds)).toThrow(),
+  );
+  test("refuses a WebAssembly manifest that names kind js", () =>
+    expect(() => decodeModuleManifest({ ...valid, kind: "js" }, bounds)).toThrow());
+  test.each([
+    ["runtimeAbi", 1],
+    ["runtimeIdentity", "0".repeat(64)],
+    ["memory", bounds.minimum],
+    ["threads", 0],
+    ["data", []],
+    ["settingsSchemaDir", `${storePath}/share/glib-2.0/schemas`],
+  ])("refuses %s, which has no meaning without the runtime", (field, value) =>
+    expect(() => decodeModuleManifest({ ...js, [field]: value }, bounds)).toThrow(),
+  );
+  test("requires moduleAbi as a non-negative integer", () => {
+    const { moduleAbi: _, ...missing } = js;
+    expect(() => decodeModuleManifest(missing, bounds)).toThrow();
+    for (const moduleAbi of [-1, 1.5, "1"]) expect(() => decodeModuleManifest({ ...js, moduleAbi }, bounds)).toThrow();
+  });
+  test("leaves the memory bounds to the WebAssembly variant", () =>
+    expect(decodeModuleManifest(js, { minimum: 2 ** 40, maximum: 2 ** 41 })).toEqual(js));
+  test("refuses data on an engine", () =>
+    expect(() =>
+      decodeModuleManifest({ ...js, engines: [{ ...engine, data: [`${storePath}-dictionary`] }] }, bounds),
+    ).toThrow(/data/));
+  test.each(["name", "displayName"])("refuses an empty engine %s", (field) =>
+    expect(() => decodeModuleManifest({ ...js, engines: [{ ...engine, [field]: "" }] }, bounds)).toThrow(),
+  );
+  test("applies the name, engine and settings rules", () => {
+    expect(() => decodeModuleManifest({ ...js, name: "../x" }, bounds)).toThrow();
+    expect(() => decodeModuleManifest({ ...js, license: "" }, bounds)).toThrow();
+    expect(() => decodeModuleManifest({ ...js, engines: [] }, bounds)).toThrow();
+    expect(() => decodeModuleManifest({ ...js, engines: [engine, engine] }, bounds)).toThrow(/duplicate engine names/);
+    expect(() => decodeModuleManifest({ ...js, module: { ...js.module, url: "" } }, bounds)).toThrow();
+    expect(() => decodeModuleManifest({ ...js, settingsMetadata: { url: "", size: 1 } }, bounds)).toThrow();
+  });
+  test.each([
+    ["the manifest", { ...js, extra: 1 }],
+    ["the module", { ...js, module: { ...js.module, extra: 1 } }],
+    ["an engine", { ...js, engines: [{ ...engine, extra: 1 }] }],
+  ])("refuses an excess key in %s", (_, manifest) => expect(() => decodeModuleManifest(manifest, bounds)).toThrow());
+  test("lists no lazy store paths", () => expect([...lazyStorePaths(decodeModuleManifest(js, bounds))]).toEqual([]));
+});

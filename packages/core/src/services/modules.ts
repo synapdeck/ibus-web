@@ -24,6 +24,7 @@ import {
   crashError,
   EngineLoadFailed,
   isIbusWebError,
+  ModuleAbiMismatch,
   PrepareEngineError,
   ProtocolError,
   ProtocolMismatch,
@@ -203,6 +204,8 @@ const startupFailure = (module: string, cause: unknown): { error: IbusWebError; 
     const diagnostic = crash.message;
     if (crash.refused === "RuntimeAbiMismatch")
       return { error: new RuntimeAbiMismatch({ module, diagnostic }), terminal: true };
+    if (crash.refused === "ModuleAbiMismatch")
+      return { error: new ModuleAbiMismatch({ module, diagnostic }), terminal: true };
     if (crash.refused === "ProtocolMismatch")
       return { error: new ProtocolMismatch({ module, diagnostic }), terminal: true };
     return { error: new EngineLoadFailed({ module, diagnostic }), terminal: crash.refused === "manifest" };
@@ -213,6 +216,7 @@ const startupFailure = (module: string, cause: unknown): { error: IbusWebError; 
       error: cause,
       terminal:
         cause._tag === "RuntimeAbiMismatch" ||
+        cause._tag === "ModuleAbiMismatch" ||
         cause._tag === "ProtocolMismatch" ||
         cause._tag === "ProtocolError" ||
         cause instanceof InitRefused,
@@ -440,6 +444,7 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
                 hostUrl: options.hostUrl,
                 runtimeUrl: options.runtimeUrl,
                 manifestUrl: options.modules[name]!,
+                kind: manifest.kind ?? "wasm",
                 storage: options.storage ?? "browser",
                 budgetMs: config.budgetMs,
                 hangMs: config.hangMs,
@@ -475,9 +480,10 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
             }),
           { interruptible: true },
         ).pipe(Scope.provide(lifetime));
-        // The page hears of a version change on the module's databases for its host, which can't wake for one.
+        // The page hears of a version change on the module's databases for its host, which can't wake for one. A
+        // JavaScript module's host opens none, so a database of the same name, a WebAssembly build's, isn't its.
         const checkStorage = connection.checkStorage?.bind(connection);
-        if (checkStorage && (options.storage ?? "browser") === "browser" && !inMemory)
+        if (checkStorage && manifest.kind !== "js" && (options.storage ?? "browser") === "browser" && !inMemory)
           yield* Effect.acquireRelease(
             Effect.sync(() => watchDatabases([engineDatabase(manifest), engineDataDatabase(manifest)], checkStorage)),
             (stop) => Effect.sync(stop),
@@ -907,20 +913,25 @@ export const makeModuleRegistry = (options: ModuleRegistryOptions) =>
             return yield* Effect.fail(new Error(`Unknown engine: ${engine} in module ${module}`));
         }
 
-        // A module whose storage would be memory keeps nothing installed, so its files are fetched instead.
+        // A module whose storage would be memory keeps nothing installed, so its files are fetched instead. A
+        // JavaScript module has nothing to install but its script, which the HTTP cache keeps, so it is fetched too.
         let fetching = modules;
         if (preloadOptions.install === true) {
           fetching = [];
-          for (const name of modules)
-            if ((yield* install(name, manifests.get(name)!, requested)) === "ephemeral") fetching.push(name);
+          for (const name of modules) {
+            const manifest = manifests.get(name)!;
+            if (manifest.kind === "js" || (yield* install(name, manifest, requested)) === "ephemeral")
+              fetching.push(name);
+          }
         }
 
         yield* Effect.tryPromise({
           try: async () => {
             const cache = await openPreloads(preloading);
-            if (cache === undefined) return;
             for (const name of fetching) {
               const manifest = manifests.get(name)!;
+              if (cache === undefined && manifest.kind !== "js") continue;
+
               const own = requested.filter(({ module }) => module === name);
               try {
                 const base = await cacheManifest(preloading, cache, name, options.modules[name]!, manifest);

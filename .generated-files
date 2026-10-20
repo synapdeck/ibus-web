@@ -15,6 +15,7 @@ packages/core/src/keys/dom-codes.generated.ts
 packages/core/src/keys/keysyms.generated.ts
 packages/core/src/keys/us.generated.ts
 packages/protocol/PROTOCOL.md
+packages/protocol/src/keyval-unicode.generated.ts
 pnpm-workspace.yaml
 runtime/libibus-web/include/ibus-web/protocol.h
 runtime/libibus-web/src/ibus/us-keymap.generated.h
