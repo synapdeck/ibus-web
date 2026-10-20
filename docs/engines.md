@@ -57,9 +57,14 @@ nix build .#ibus-web-hangul-dist
 ```
 
 The output contains `manifest.json`, generated `settings.json`, `hangul.wasm`, and one `data/<hash>-<name>.tar.br` per
-closure store path. A module is one such distribution, run in one Worker; its engines are the input methods inside it,
-each created by name with `CreateEngine`. `ModuleManifest` and `EngineDescriptor` in `@ibus-web/protocol` have these
-fields:
+closure store path. The archives come from a derivation of their own, `ibus-web-<name>-data` (the distribution's
+`passthru.data`), which takes only the package's closure and the archiving tools, so compressing them, the slow step,
+reruns only when the data changes and not with the protocol, the TypeScript workspace or the settings and descriptors
+built from it. It writes the archives and a `data.jsonl` of their manifest entries; the distribution copies the
+archives, adds the module, settings, memory, identity and protocol, and checks the manifest. Its `version` takes `+nix.`
+and the distribution's own output hash, which therefore still covers the data, the protocol and the runtime. A module is
+one such distribution, run in one Worker; its engines are the input methods inside it, each created by name with
+`CreateEngine`. `ModuleManifest` and `EngineDescriptor` in `@ibus-web/protocol` have these fields:
 
 ```ts
 type ModuleManifest = {
@@ -150,17 +155,17 @@ whichever is prepared first.
 
 ### Archives and serving
 
-Each archive is deterministic pax, POSIX's extension of ustar, Brotli quality 11 and the standard window (no
-`--large_window`). GNU tar writes it with `ibusWeb.lib.archiveTarFlags`: pax keeps a name or a link target longer than
-ustar's 100 bytes in an extended header, as Rime's common data needs for its links into the dictionaries' store paths,
-and the flags drop pax's own `atime` and `ctime` records and name the extended headers without the writer's pid, so the
-same tree always gives the same bytes; the host's test archives are built twice with their times changed to check that.
-Entries are named from `/nix/store`: `<hash>-<name>/…`, or the bare `<hash>-<name>` file for a store path that is a
-single file. `--hard-dereference` stores hard links, which store optimisation makes of identical files, as regular
-files, since the installer takes none. Symbolic links are kept as links, with their targets as the store has them;
-before archiving, `tools/engine-manifest/symlinks.ts` resolves every link in the closure the way the engine's file
-system will, holding only the closure's store paths, and fails the build if one leads outside them. `size` counts
-unpacked regular-file bytes, every name of a hard-linked file in full and nothing for a symbolic link.
+Each archive, built by the data derivation, is deterministic pax, POSIX's extension of ustar, Brotli quality 11 and the
+standard window (no `--large_window`). GNU tar writes it with `ibusWeb.lib.archiveTarFlags`: pax keeps a name or a link
+target longer than ustar's 100 bytes in an extended header, as Rime's common data needs for its links into the
+dictionaries' store paths, and the flags drop pax's own `atime` and `ctime` records and name the extended headers
+without the writer's pid, so the same tree always gives the same bytes; the host's test archives are built twice with
+their times changed to check that. Entries are named from `/nix/store`: `<hash>-<name>/…`, or the bare `<hash>-<name>`
+file for a store path that is a single file. `--hard-dereference` stores hard links, which store optimisation makes of
+identical files, as regular files, since the installer takes none. Symbolic links are kept as links, with their targets
+as the store has them; before archiving, `tools/engine-manifest/symlinks.ts` resolves every link in the closure the way
+the engine's file system will, holding only the closure's store paths, and fails the build if one leads outside them.
+`size` counts unpacked regular-file bytes, every name of a hard-linked file in full and nothing for a symbolic link.
 
 The host extracts each archive at the root of the `/nix/store` mount, decoding it with `modern-tar`'s strict decoder and
 writing each entry through WasmFS's `FS` as it arrives ([storage.md](storage.md#installing)). Since every archive lands
