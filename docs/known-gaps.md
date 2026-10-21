@@ -140,6 +140,13 @@ decided.
 - **WebKit's `unload()` and `dispose()` with unsaved learning** wait `hangMs` (2 s by default) and still lose it:
   WebKit's Workers reach IndexedDB through the page's main thread, which the wait holds
   ([core.md](core.md#layers-and-page-lifetime)).
+- **Safari keeps a reloaded page's Rime Worker and its locks.** After a reload in Safari 26 on macOS, the old page's
+  Rime Worker still held Rime's writer and data locks two minutes later, while its Hangul Worker had let its writer lock
+  go. The new page's Rime starts read-only and keeps no learning until the old Worker ends, so the Safari smoke suite
+  fails at its learning step, which waits for that lock. Why that Worker outlives its page isn't known.
+- **An install-only preload never finishes in Firefox on macOS.** `preload(entries, { install: true })` for
+  `rime:cangjie5` writes all 30.0 MB, and its Worker lets go of every lock, but the page never receives `preloaded`, so
+  the Promise doesn't settle; the same test passes in Firefox on Linux. Seen only in CI's macOS Playwright job.
 - **A read-only tab learns nothing that lasts.** Only the tab holding a module's writer lock saves learning. A read-only
   Rime opens no user dictionary and takes a settings change other than the page size only at its next start, once the
   writer has compiled it ([rime.md](rime.md#a-read-only-module)); a read-only Mozc learns for its Worker's life alone,
@@ -283,12 +290,13 @@ decided.
 - **FlakeHub visibility follows the repository's**, read from `github.event.repository.private` at each publish.
   FlakeHub's documentation doesn't say whether a publish changes an existing flake's visibility; if the first publish
   after the repository goes public leaves the flake private, change it once in FlakeHub's settings.
-- **aarch64 and macOS haven't passed CI.** The workflows check aarch64-linux and aarch64-darwin on WarpBuild's runners,
-  and every check evaluates on all three systems, but only x86_64-linux has built them; the macOS Playwright and Safari
-  jobs wait on the aarch64-darwin checks, so they haven't run.
-- **Darwin's checks launch no browsers.** Chromium fails in a Nix build on Darwin, with an assertion in Playwright's
-  connection to it, for a reason not found, so `ibusWeb.testing.browserChecks` stay out of Darwin's checks. The browsers
-  there are left to CI's macOS Playwright job, itself a Nix build, and the Safari smoke suite.
+- **The macOS browser jobs don't pass.** The macOS Playwright job fails on the install-only preload in Firefox, and the
+  Safari smoke suite on its learning step (both under Engines and page integration). Chromium's two Rime preloading
+  tests failed there once with the whole suite running and passed alone.
+- **Darwin's checks launch no browsers.** A process a Nix build starts on Darwin can't start a sandbox of its own, so
+  the Playwright build there runs Chromium and Firefox without theirs and gives Firefox a home through
+  `CFFIXED_USER_HOME`. `ibusWeb.testing.browserChecks` stay out of Darwin's checks, untried with those settings; the
+  browsers there are left to CI's macOS Playwright job, itself a Nix build, and the Safari smoke suite.
 
 ## Upstream
 
