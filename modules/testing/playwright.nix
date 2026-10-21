@@ -25,9 +25,9 @@
       inChecks = lib.mkOption {
         type = lib.types.bool;
         description = ''
-          Whether the flake's checks launch browsers. On Darwin, Chromium fails in a Nix
-          build there (an assertion in Playwright's connection to it), so they don't; CI's
-          macOS Playwright job and the Safari smoke suite cover the browsers there.
+          Whether the flake's checks launch browsers. They don't on Darwin, where they are
+          untried without the browsers' own sandboxes; CI's macOS Playwright job and the
+          Safari smoke suite cover the browsers there.
         '';
       };
 
@@ -38,7 +38,7 @@
 
       setup = lib.mkOption {
         type = lib.types.lines;
-        description = "Shell commands a Nix build runs before launching the browsers. For builds only: it points HOME at a fresh directory.";
+        description = "Shell commands a Nix build runs before launching the browsers. For builds only: it points HOME at a fresh directory and, on macOS, turns off the browsers' own sandboxes.";
       };
     };
   };
@@ -85,6 +85,14 @@
         # HOME doesn't exist.
         setup = ''
           export HOME=$(mktemp -d)
+        ''
+        # A process a Nix build starts on macOS can't start a sandbox of its
+        # own ("sandbox initialization failed"), so there the browsers run
+        # without theirs.
+        + lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
+          export IBUS_WEB_CHROMIUM_SANDBOX=0
+          export MOZ_DISABLE_CONTENT_SANDBOX=1 MOZ_DISABLE_GMP_SANDBOX=1 MOZ_DISABLE_RDD_SANDBOX=1
+          export MOZ_DISABLE_SOCKET_PROCESS_SANDBOX=1 MOZ_DISABLE_UTILITY_SANDBOX=1 MOZ_DISABLE_GPU_SANDBOX=1
         '';
       };
 
