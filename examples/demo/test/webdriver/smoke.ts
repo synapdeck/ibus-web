@@ -16,6 +16,7 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
+import { stripVTControlCharacters } from "node:util";
 import { Key, Session, driverReady, waitFor } from "./webdriver.ts";
 
 const driverCommand = process.env["IBUS_WEB_WEBDRIVER"];
@@ -37,9 +38,13 @@ async function preview(): Promise<ChildProcess> {
   const server = spawn(process.execPath, ["node_modules/vite/bin/vite.js", ...args], {
     stdio: ["ignore", "pipe", "inherit"],
   });
+  // Vite colours its output wherever CI is set, even into a pipe, with the
+  // port in bold, and the address can arrive split across chunks.
+  let output = "";
   await new Promise<void>((resolve, reject) => {
     server.stdout!.on("data", (chunk: Buffer) => {
-      if (chunk.toString().includes(`127.0.0.1:${pagePort}`)) resolve();
+      output += stripVTControlCharacters(chunk.toString());
+      if (output.includes(`127.0.0.1:${pagePort}`)) resolve();
     });
     server.once("exit", (code) => reject(new Error(`the preview server exited: ${code}`)));
     server.once("error", reject);
