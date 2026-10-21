@@ -61,9 +61,10 @@ test("the picker lists Rime's engines under their languages", async ({ page }) =
     picker(page).locator(`optgroup[label='${group}'] option[data-engine='${engine}']`);
   await expect(option("rime · Chinese", "rime:rime_ice")).toHaveText("雾凇拼音 (Pinyin, simplified)");
   await expect(option("rime · Cantonese", "rime:jyut6ping3")).toHaveCount(1);
-  // Chromium's language names have none for Wu Chinese, so its group is labelled with the code.
+  // Chromium's language names have none for Wu Chinese, so its group is labelled with the code; WebKit on macOS calls
+  // it Shanghainese.
   const wu = await page.evaluate(() => new Intl.DisplayNames(["en"], { type: "language" }).of("wuu"));
-  expect(["Wu Chinese", "wuu"]).toContain(wu);
+  expect(["Wu Chinese", "Shanghainese", "wuu"]).toContain(wu);
   await expect(option(`rime · ${wu}`, "rime:wugniu")).toHaveCount(1);
 
   const groups = await page.evaluate(async () => {

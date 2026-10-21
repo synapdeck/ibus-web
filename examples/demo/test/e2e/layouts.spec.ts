@@ -9,6 +9,10 @@ import { rime } from "./rime.ts";
 // Rime's first selection installs its dictionaries.
 test.describe.configure({ timeout: 300_000 });
 
+// Command chords never reach the page's adapter on macOS, and Playwright's WebKit performs them by the key's code, not
+// the character the layout gives it, so there select-all would test only the automation.
+const checksSelectAll = process.platform !== "darwin";
+
 const field = (page: Page) => page.locator("#input");
 const preedit = (page: Page) => page.locator("[data-ibus-preedit]").filter({ hasText: /./ });
 
@@ -132,16 +136,18 @@ for (const [name, engine] of Object.entries(engines))
         await expect(preedit(page), "Meta+A composes nothing").toHaveCount(0);
         await expect(field(page), "Meta+A types nothing").toHaveValue("");
 
-        await setValue(page, "select me");
-        await press(page, layout, strokeFor(layout, "a"), ["Control"]);
-        await expect
-          .poll(
-            () =>
-              field(page).evaluate((element: HTMLTextAreaElement) => [element.selectionStart, element.selectionEnd]),
-            { message: "Ctrl+A selects all" },
-          )
-          .toEqual([0, 9]);
-        await page.keyboard.press("End");
+        if (checksSelectAll) {
+          await setValue(page, "select me");
+          await press(page, layout, strokeFor(layout, "a"), ["Control"]);
+          await expect
+            .poll(
+              () =>
+                field(page).evaluate((element: HTMLTextAreaElement) => [element.selectionStart, element.selectionEnd]),
+              { message: "Ctrl+A selects all" },
+            )
+            .toEqual([0, 9]);
+          await page.keyboard.press("End");
+        }
 
         const dead = deadKey(layout);
         if (dead) {
