@@ -447,7 +447,7 @@ the job's OIDC token.
 - **`safari`** enables safaridriver (`sudo safaridriver --enable`) and runs `nix run .#safari-smoke` on the macOS
   runner, the WebDriver smoke suite in real Safari ([testing.md](testing.md#safari-and-webdriver)). It and
   `playwright-macos` need `check-aarch64-darwin`, so they substitute the WebAssembly it built from FlakeHub Cache rather
-  than each building it again at macOS's price.
+  than each building it again at macOS's price. It stops after 20 minutes.
 - **`changesets`**, on pull requests only, on GitHub's `ubuntu-latest`: fails when the pull request changes what a
   release ships but adds no changeset. What ships is each published package's directory, `runtime/`, `engines/` and
   `modules/`, less `modules/flake/` and any `test/` or `checks/` directory: the runtime's and the engines' package

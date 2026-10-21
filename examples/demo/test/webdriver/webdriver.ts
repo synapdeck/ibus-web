@@ -21,13 +21,20 @@ export class WebDriverError extends Error {
   }
 }
 
+// A driver that never answers, as one waiting on a browser that can't
+// start, would otherwise hold the suite until its job is killed.
+const commandTimeout = 120_000;
+
 async function command(url: string, method: "GET" | "POST" | "DELETE", body?: unknown): Promise<unknown> {
+  const signal = AbortSignal.timeout(commandTimeout);
   const response = await fetch(
     url,
     body === undefined
-      ? { method }
-      : { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
-  );
+      ? { method, signal }
+      : { method, signal, headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
+  ).catch((error: unknown) => {
+    throw new Error(`${method} ${url}`, { cause: error });
+  });
   const { value } = (await response.json()) as { value: unknown };
   if (!response.ok) {
     const { error, message } = value as { error: string; message: string };

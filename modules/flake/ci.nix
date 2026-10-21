@@ -213,6 +213,8 @@
               }
               // {
                 needs = [ "check-aarch64-darwin" ];
+                # Its own commands time out; this stops a hang outside them.
+                timeoutMinutes = 20;
               };
 
             # FlakeHub Cache grants access per published flake, so the cache

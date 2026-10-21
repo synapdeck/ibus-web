@@ -619,7 +619,7 @@ checks, as a user's keystrokes through WebDriver's key actions: that the page is
 `한` from `gks` and committing it on blur; `rime_ice`'s dictionaries installing and `nihao ` typing `你好`; a candidate
 chosen below the first coming first after a reload, which is the IndexedDB backend in the module's Workers at work, with
 no read-only or failed-storage report; and no page error. It runs as one session because safaridriver serves one at a
-time.
+time. Each command gives up after two minutes, so a driver that never answers fails the suite.
 
 - `nix run .#safari-smoke` (aarch64-darwin) runs it on Safari through `/usr/bin/safaridriver`, which must be enabled
   once with `sudo safaridriver --enable`. CI's `safari` job does both on the macOS runner.

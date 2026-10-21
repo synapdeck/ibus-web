@@ -163,7 +163,7 @@ jobs:
         run: sudo safaridriver --enable
       - name: Smoke
         run: nix run .#safari-smoke -L
-    timeout-minutes: 360
+    timeout-minutes: 20
 name: CI
 "on":
   pull_request: {}
