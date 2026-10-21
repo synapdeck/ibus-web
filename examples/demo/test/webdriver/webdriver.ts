@@ -4,11 +4,13 @@
 // The few W3C WebDriver commands the smoke suite needs, over fetch, so the
 // one suite drives safaridriver, geckodriver or chromedriver alike.
 
-// The key codes WebDriver's key actions use for keys that type nothing.
+// WebDriver's codes for keys pressed as keys rather than typed as
+// characters. Safari doesn't type a " " as the Space key, and turns a
+// Shift-modified one into a dead key with no code.
 export const Key = {
   Shift: "\uE008",
   Escape: "\uE00C",
-  Space: " ",
+  Space: "\uE00D",
 } as const;
 
 // A WebDriver error, under the name the driver reported it with.
@@ -154,9 +156,9 @@ export class Session {
     await this.call("DELETE", "/actions");
   }
 
-  // Types text one key at a time.
+  // Types text one key at a time, a space as the Space key.
   type(text: string): Promise<void> {
-    return this.keys(...[...text].map((key) => [key]));
+    return this.keys(...[...text].map((key) => [key === " " ? Key.Space : key]));
   }
 
   async execute<T>(script: string, ...args: unknown[]): Promise<T> {
