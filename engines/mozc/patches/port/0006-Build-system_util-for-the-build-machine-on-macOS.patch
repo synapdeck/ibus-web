@@ -1,0 +1,165 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexis Williams <alexis@typedr.at>
+Date: Tue, 20 Oct 2026 16:44:28 -0700
+Subject: [PATCH] Build system_util for the build machine on macOS without the
+ Apple toolchain
+
+A WebAssembly build passes --define TARGET=oss_wasm on to the tools it
+builds for the build machine, so on macOS their selections leave out
+mac_util while the compiler still defines __APPLE__, and system_util.cc
+includes mac_util.h. mac_util_posix gives the tools the part of MacUtil
+system_util.cc uses, in C++, since the build has no Apple toolchain for
+Objective-C.
+---
+ src/base/BUILD.bazel           |  5 ++-
+ src/base/mac/BUILD.bazel       | 23 ++++++++++
+ src/base/mac/mac_util_posix.cc | 80 ++++++++++++++++++++++++++++++++++
+ 3 files changed, 107 insertions(+), 1 deletion(-)
+ create mode 100644 src/base/mac/mac_util_posix.cc
+
+diff --git a/src/base/BUILD.bazel b/src/base/BUILD.bazel
+index 6f0fbdf..0d75bcd 100644
+--- a/src/base/BUILD.bazel
++++ b/src/base/BUILD.bazel
+@@ -581,7 +581,10 @@ mozc_cc_library(
+             "//testing:friend_test",
+             "@com_microsoft_wil//:wil",
+         ],
+-    ),
++    ) + select({
++        "//base/mac:mac_util_posix_for_tools": ["//base/mac:mac_util_posix"],
++        "//conditions:default": [],
++    }),
+ )
+ 
+ mozc_cc_test(
+diff --git a/src/base/mac/BUILD.bazel b/src/base/mac/BUILD.bazel
+index 747e26a..3e63c46 100644
+--- a/src/base/mac/BUILD.bazel
++++ b/src/base/mac/BUILD.bazel
+@@ -29,9 +29,11 @@
+ 
+ # Base library platform dependent code for MacOS.
+ 
++load("@bazel_skylib//lib:selects.bzl", "selects")
+ load(
+     "//:build_defs.bzl",
+     "mozc_cc_binary",
++    "mozc_cc_library",
+     "mozc_objc_library",
+     "mozc_objc_test",
+     "mozc_select",
+@@ -75,6 +77,27 @@ mozc_objc_library(
+     visibility = ["//visibility:private"],
+ )
+ 
++# Mozc's selections follow --define TARGET, which a build passes on to its
++# tools for the build machine. In a WebAssembly build on macOS, they leave
++# out mac_util, which system_util.cc includes wherever __APPLE__ is defined.
++selects.config_setting_group(
++    name = "mac_util_posix_for_tools",
++    match_all = [
++        "@platforms//os:macos",
++        "//bazel/cc_target_os:oss_wasm",
++    ],
++)
++
++mozc_cc_library(
++    name = "mac_util_posix",
++    srcs = ["mac_util_posix.cc"],
++    hdrs = ["mac_util.h"],
++    deps = [
++        "//base:const",
++        "@com_google_absl//absl/strings",
++    ],
++)
++
+ mozc_objc_library(
+     name = "mac_util",
+     srcs = [
+diff --git a/src/base/mac/mac_util_posix.cc b/src/base/mac/mac_util_posix.cc
+new file mode 100644
+index 0000000..c03d711
+--- /dev/null
++++ b/src/base/mac/mac_util_posix.cc
+@@ -0,0 +1,80 @@
++// Copyright 2010-2021, Google Inc.
++// All rights reserved.
++//
++// Redistribution and use in source and binary forms, with or without
++// modification, are permitted provided that the following conditions are
++// met:
++//
++//     * Redistributions of source code must retain the above copyright
++// notice, this list of conditions and the following disclaimer.
++//     * Redistributions in binary form must reproduce the above
++// copyright notice, this list of conditions and the following disclaimer
++// in the documentation and/or other materials provided with the
++// distribution.
++//     * Neither the name of Google Inc. nor the names of its
++// contributors may be used to endorse or promote products derived from
++// this software without specific prior written permission.
++//
++// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
++// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
++// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
++// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
++// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++
++// The part of MacUtil that system_util.cc uses, without Objective-C, for
++// programs that run on macOS but are built without the Apple toolchain:
++// directories under $HOME/Library, as Foundation gives them for the user's
++// domain, and the OS version from sysctl.
++
++#include <sys/sysctl.h>
++
++#include <cstdlib>
++#include <string>
++
++#include "absl/strings/str_cat.h"
++#include "absl/strings/string_view.h"
++#include "base/const.h"
++#include "base/mac/mac_util.h"
++
++namespace mozc {
++namespace {
++
++std::string GetLibraryDirectory(absl::string_view name) {
++  const char *home = std::getenv("HOME");
++  return absl::StrCat(home == nullptr ? "" : home, "/Library/", name);
++}
++
++}  // namespace
++
++std::string MacUtil::GetApplicationSupportDirectory() {
++  return GetLibraryDirectory("Application Support");
++}
++
++std::string MacUtil::GetCachesDirectory() {
++  return GetLibraryDirectory("Caches");
++}
++
++std::string MacUtil::GetLoggingDirectory() {
++  return absl::StrCat(GetLibraryDirectory("Logs"), "/", kProductPrefix);
++}
++
++std::string MacUtil::GetOSVersionString() {
++  char version[64];
++  size_t size = sizeof(version);
++  if (sysctlbyname("kern.osproductversion", version, &size, nullptr, 0) != 0) {
++    return "";
++  }
++  return version;
++}
++
++std::string MacUtil::GetServerDirectory() {
++  return "/Library/Input Methods/" kProductPrefix ".app/Contents/Resources";
++}
++
++}  // namespace mozc

@@ -29,7 +29,7 @@ which exist only inside the Bazel build: `-fsyntax-only -Wno-everything -Wno-err
 SARIF diagnostics, one report per object, in a directory the sandbox may write. The install keeps the reports that found
 something, with the sources they name, copied from the execroot after their paths are made relative to it.
 
-Five port patches, in `patches/port`, apply after nixpkgs':
+Six port patches, in `patches/port`, apply after nixpkgs':
 
 - 0001 adds the `oss_wasm` target: the open-source branding of `oss_linux` with Mozc's WebAssembly handling. Mozc's own
   `wasm` target is Google-branded and defines `GOOGLE_JAPANESE_INPUT_BUILD`, which the open-source tree can't build. The
@@ -43,6 +43,10 @@ Five port patches, in `patches/port`, apply after nixpkgs':
   puts the candidate in its segment and leaves the conversion open, so a click alone would leave the field unchanged
   until Enter. It also sends `SUBMIT`, which Enter sends, committing the conversion with the clicked candidate in its
   segment; the other segments commit with the candidates they have.
+- 0006 gives `system_util` the part of `MacUtil` it uses, in C++, when Bazel builds it for the build machine on macOS.
+  Mozc's selections follow `--define TARGET`, which Bazel passes on to those tools, so in a WebAssembly build they leave
+  out the Objective-C `mac_util` that `system_util.cc` includes wherever `__APPLE__` is defined; and the build has no
+  Apple toolchain to compile it.
 
 Mozc sends one page of candidates at a time, and ibus-mozc maps the panel's page-relative index into that page.
 
