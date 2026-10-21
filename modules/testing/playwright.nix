@@ -93,6 +93,12 @@
           export IBUS_WEB_CHROMIUM_SANDBOX=0
           export MOZ_DISABLE_CONTENT_SANDBOX=1 MOZ_DISABLE_GMP_SANDBOX=1 MOZ_DISABLE_RDD_SANDBOX=1
           export MOZ_DISABLE_SOCKET_PROCESS_SANDBOX=1 MOZ_DISABLE_UTILITY_SANDBOX=1 MOZ_DISABLE_GPU_SANDBOX=1
+        ''
+        # Firefox finds its folders from the user's home directory through
+        # CoreFoundation, which ignores HOME; a build user's is /var/empty.
+        # CoreFoundation takes CFFIXED_USER_HOME instead.
+        + lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
+          export CFFIXED_USER_HOME=$HOME
         '';
       };
 

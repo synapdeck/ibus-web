@@ -322,7 +322,8 @@ Chromium and ffmpeg left out of the closure — so the workspace's `playwright` 
   default; CI lifts that with a `sysctl` step, [tooling.md](tooling.md#ci)); on such a builder, set it to false.
 - `setup`: a fresh `HOME`. Firefox writes its XDG directories under `HOME` as it starts and hangs before Playwright can
   connect if it can't. On Darwin it also turns off Chromium's and Firefox's own sandboxes, which a process a Nix build
-  starts there can't set up.
+  starts there can't set up, and sets `CFFIXED_USER_HOME` to that `HOME`, since Firefox finds its folders through
+  CoreFoundation, which ignores `HOME`, and a build user's home is `/var/empty`.
 - `inChecks` (false on Darwin): whether the flake's checks launch browsers. The checks that do are declared in
   `ibusWeb.testing.browserChecks`, which become checks where it holds, and the shim's own test leaves out its browser
   fixtures where it doesn't.
